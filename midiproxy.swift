@@ -475,6 +475,7 @@ inSplitter.onMessage = { m in
                 withPacketList(onLayer([0x90, n, 0])) { pl in MIDIReceived(virtSrc, pl) }
             }
             heldNotes.removeAll()
+            padHeldMode = [Int](repeating: -1, count: 8)   // those releases are now sent
             layer = (layer + 1) % layerCount
             flips += 1
             showLayer()
@@ -507,6 +508,10 @@ inSplitter.onMessage = { m in
         padHeldMode[i] = down ? padMode : -1
         var out = m
         out[1] = UInt8(padModeBase[bank] + i)
+        // Pads return early, so they have to join heldNotes here or a layer flip
+        // mid-hold never releases them — under their bank address, which is what the
+        // host was actually told about.
+        if down { heldNotes.insert(out[1]) } else { heldNotes.remove(out[1]) }
         passed += 1
         if verbose { print("  pass  \(describe(layerEnabled ? onLayer(out) : out))  (\(padModeNames[bank]) pad \(i + 1))") }
         emitToHost(out)
