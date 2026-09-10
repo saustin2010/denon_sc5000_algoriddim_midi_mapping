@@ -14,6 +14,8 @@ var loNote = 0
 var ccNum = -1
 var ccVal = 127
 var hiNote = 127
+var colours: [Int] = []
+var holds: [(Int, Int)] = []
 
 var argv = Array(CommandLine.arguments.dropFirst())
 var ai = 0
@@ -27,6 +29,14 @@ while ai < argv.count {
     case "--sweep":       mode = "sweep"
     case "--pads":        mode = "pads"
     case "--palette":     mode = "palette"
+    case "--colours":     colours = (next() ?? "").split(separator: ",").compactMap { Int($0) }
+                          mode = "colours"
+    case "--hold":        holds = (next() ?? "").split(separator: ",").compactMap { pair in
+                              let kv = pair.split(separator: ":")
+                              guard kv.count == 2, let n = Int(kv[0]), let c = Int(kv[1]) else { return nil }
+                              return (n, c)
+                          }
+                          mode = "hold"
     case "--every":       mode = "every"
     case "--ccscan":      mode = "ccscan"
     case "--cc":          ccNum = Int(next() ?? "") ?? ccNum; mode = "cc"
@@ -52,6 +62,11 @@ while ai < argv.count {
           --from <n>        scan lower bound  (default 0)
           --to <n>          scan upper bound  (default 127)
           --palette         show 8 colour indices at once, one per pad, and hold
+          --colours <list>  hold one named colour index per pad, left to right —
+                            for checking a set you mean to put in midiproxy
+          --hold <list>     hold any notes at any colour indices, note:index —
+                            lighting several at once says whether an LED is RGB
+                            at all, since a single-colour one ignores the index
           --page <n>        which block of 8 to show (0 = indices 1-8, 1 = 9-16, ...)
           --all             light everything at once
           --off             blackout: note-off every known LED
@@ -187,6 +202,24 @@ case "palette":
         let idx = base + i
         on(n, idx)
         print("  \(name)  ->  colour index \(idx)")
+    }
+    print("\nholding. Ctrl-C to stop.")
+    CFRunLoopRun()
+
+case "hold":
+    print("holding the notes you named\n")
+    for (n, c) in holds {
+        on(n, c)
+        print("  note \(n)  ->  colour index \(c)")
+    }
+    print("\nholding. Ctrl-C to stop.")
+    CFRunLoopRun()
+
+case "colours":
+    print("holding the pads at the indices you named — read them off left to right\n")
+    for (i, (n, name)) in rgb.prefix(8).enumerated() where i < colours.count {
+        on(n, colours[i])
+        print("  \(name)  ->  colour index \(colours[i])")
     }
     print("\nholding. Ctrl-C to stop.")
     CFRunLoopRun()

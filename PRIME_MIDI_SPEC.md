@@ -64,6 +64,27 @@ Same note numbers as the button table above, plus these output-only LEDs:
 **RGB LEDs** — pads 32–39 and Platter LED Ring (40) take a colour index as
 velocity, per the device colour table (indices roughly 1–64).
 
+Confirmed on the SC5000M: **only** pads 32–39 and the ring take a colour index.
+Loop In (8), Loop Out (9) and Auto Loop (10) stay white whatever index they are
+sent — `ledtest --hold 8:16,9:40,10:1` lights all three the same. Velocity on
+those is brightness, exactly as the table above says.
+
+### The pad colour table — read off the hardware
+
+The table is **not** blocks of one hue, and not a brightness ramp. Indices eight
+apart behave completely differently depending on where you start, so the only way
+to pick a set is to hold them on the pads and look: `ledtest --colours <list>`.
+
+| Start | Indices | Colours, left to right |
+|---|---|---|
+| 1 | 1, 9, 17, 25, 33, 41, 49, 57 | red, orange, blue, yellow, green, pink, blue, purple |
+| 5 | 5, 13, 21, 29, 37, 45, 53, 61 | blue, aqua, pink, off white, pink, white, pink, white |
+| 8 | 8, 16, 24, 32, 40, 48, 56, 64 | green, red, light green, red, yellow, red, yellow, — |
+
+Eight distinct colours, used for the hot cue pads: **1** red, **9** orange,
+**17** blue, **25** yellow, **33** green, **41** pink, **13** aqua, **57** purple.
+**45** is white, which reads as lit against any of them.
+
 **The screen is not reachable over MIDI at all — see "The 7-inch screen" below.**
 
 ## SC5000M-specific — discovered on hardware, absent from the LC6000 spec
