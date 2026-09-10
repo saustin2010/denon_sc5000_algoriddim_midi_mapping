@@ -15,6 +15,18 @@ DEST=~/Library/Containers/com.algoriddim.djay-iphone-free/Data/Music/djay/MIDI\ 
 swiftc -O midiproxy.swift -o midiproxy
 cp "$MAP" "$DEST/"
 
+# Only ever leave one proxy mapping where djay can see it. Both variants have to
+# claim the endpointName "SC5000M Proxy" — that is the real port name — so if both
+# sit in the folder and djay ever loses its explicit binding, it name-matches and
+# picks one arbitrarily. That is exactly how a mapping silently "reconfigures".
+OTHER=SC5000M_Proxy_FULL.djayMidiMapping
+[ "$LAYERS" = 4 ] || OTHER=SC5000M_Proxy_4DECK.djayMidiMapping
+if [ -f "$DEST/$OTHER" ]; then
+    mkdir -p "$DEST/_disabled"
+    mv "$DEST/$OTHER" "$DEST/_disabled/"
+    echo "stood down  $OTHER  (kept in _disabled/)"
+fi
+
 echo
 echo "deployed  $MAP  ->  djay"
 if pgrep -qf "djay Pro.app/Contents/MacOS"; then
