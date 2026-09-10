@@ -58,11 +58,40 @@ PAD_BANKS = [
     (96, "auto loop", [f"autoLoop{b}BeatInterval"    for b in ALOOP], None),
 ]
 
+# The platter. midiproxy forwards every tick rather than pre-dividing them, so the
+# gearing happens here instead: djay scales a rotary by rotarySensitivity in floating
+# point, which keeps the deck's full 3683-ticks-per-revolution resolution instead of
+# rounding each move to a whole CC step. rotaryAcceleration is djay's own curve --
+# slow moves stay one to one so you can inch onto a beat, fast moves get amplified so
+# a throw still scratches. Every mapping Algoriddim ships for a platter uses 150.
+#
+# rotarySensitivity MULTIPLIES each step -- higher is more sensitive, not less. Read
+# it off the mappings djay ships: counts-per-revolution * sensitivity is ~1500 on
+# every one of them. The SC5000 mapping takes the coarse CC 17 (the position MSB,
+# 28.8 counts/rev) at 52.0; the RANE Four takes a per-tick counter at 0.42.
+#
+# Keep sensitivity >= 1.0. djay rounds each step to a whole internal unit, so a step
+# worth 0.42 rounds to nothing twice out of three and then lurches -- it feels like
+# coarse, sticky grain. Note both shipped mappings above are >= 1.0 or read a counter
+# coarse enough that they are: nothing Algoriddim ships lands below the grid. Gear
+# down with midiproxy --scratch-scale instead (2.4 ticks per step pairs with 1.0).
+# jogSeekMove sits on the SHIFT layer, exactly as djay's own SC5000 mapping has it.
+# Unshifted it shares CC 49 with scratchingMove and djay drives BOTH off every tick,
+# so the platter scratches and seeks at the same time and a paused track runs away.
+# cc, target, controlType, sens, accel, SHIFT-only, verified
 DECK_CCS = [
-    (3,  "autoLoopDurationRotary", "rotary",          V),
-    (8,  "speed",                  None,              V),
-    (49, "scratchingMove",         "rotary-absolute", V),
-    (64, "skipRotary",             "rotary-absolute", V),
+    (3,  "autoLoopDurationRotary", "rotary",          None, None, False, V),
+    (8,  "speed",                  None,              None, None, False, V),
+    (49, "scratchingMove",         "rotary-absolute", "SENS", "ACCEL", False, V),
+    (49, "jogSeekMove",            "rotary-absolute", "SENS", None,    True,  V),
+    # The platter as a tempo nudge instead of a scratch. djay's jogPitchBendModeToggle
+    # (note 19) picks which of these is live, so both can sit on the platter at once --
+    # without this one that toggle just lands the deck in a mode where nothing moves.
+    # Relative, not absolute: this rides CC 54, the deck's own jog delta (1 = +1,
+    # 127 = -1), which is what djay calls "rotary". Gear it with --jog-divisor, which
+    # is proxy-side and so retunable without reloading the mapping in djay.
+    (54, "pitchBendMove",          "rotary",          None, None, False, V),
+    (64, "skipRotary",             "rotary-absolute", None, None, False, V),
 ]
 
 # global controls, mapped on both channels. load1/load2 follow the active deck.
@@ -117,11 +146,14 @@ def check(controls, folder=DJAY_MAPPINGS):
     return dead
 
 
-def ctl(ch, mtype, data, keypath, ctype=None, out=False, modifier=False):
+def ctl(ch, mtype, data, keypath, ctype=None, out=False, modifier=False,
+        sens=None, accel=None):
     e = {"midiChannel": ch, "midiMessageType": mtype, "midiData": data, "keyPath": keypath}
-    if ctype:    e["controlType"] = ctype
-    if out:      e["output"] = {}
-    if modifier: e["modifier"] = True
+    if ctype:          e["controlType"] = ctype
+    if out:            e["output"] = {}
+    if modifier:       e["modifier"] = True
+    if sens is not None:  e["rotarySensitivity"] = float(sens)
+    if accel is not None: e["rotaryAcceleration"] = int(accel)
     return e
 
 
@@ -132,6 +164,22 @@ def main():
     ap.add_argument("-u", "--usbid", type=int, default=0)
     ap.add_argument("-L", "--layers", type=int, default=2, choices=(2, 3, 4),
                     help="decks the LAYER button cycles; must match midiproxy --layers")
+    ap.add_argument("-s", "--sensitivity", type=float, default=1.0,
+                    help="djay's float multiplier on each CC step. Higher = MORE "
+                         "sensitive. djay wants counts-per-revolution * sensitivity "
+                         "~= 1500: its SC5000 mapping reads the coarse CC 17 (28.8 "
+                         "counts/rev) at 52.0, its RANE Four reads a per-tick counter "
+                         "at 0.42. midiproxy --scratch-scale 1 emits the per-tick "
+                         "form, so 0.42 is the matching value (default: %(default)s)")
+    ap.add_argument("-a", "--acceleration", type=int, default=150,
+                    help="djay's fast-move boost on the platter, 0 to disable. This is "
+                         "what makes a throw travel: slow moves stay ~1:1 so you can inch "
+                         "onto a beat, fast moves get amplified so it scratches. Turning "
+                         "it off to cure coarse grain is a mistake -- grain comes from a "
+                         "sensitivity below 1.0 rounding away against djay's grid, and "
+                         "killing the curve costs you scratching without fixing it. Fix "
+                         "the grain with --sensitivity/--scratch-scale and leave this at "
+                         "150, the value Algoriddim ships (default: %(default)s)")
     args = ap.parse_args()
 
     controls = []
@@ -144,8 +192,10 @@ def main():
                 controls.append(ctl(ch, 1, base + i, f"{deck}.{tgt}", out=True))
                 if shifted:
                     controls.append(ctl(ch, 1, base + i, f"{deck}.{shifted[i]}", modifier=True))
-        for cc, tgt, ctype, _ in DECK_CCS:
-            controls.append(ctl(ch, 3, cc, f"{deck}.{tgt}", ctype=ctype))
+        for cc, tgt, ctype, sens, accel, mod, _ in DECK_CCS:
+            controls.append(ctl(ch, 3, cc, f"{deck}.{tgt}", ctype=ctype, modifier=mod,
+                                sens=args.sensitivity if sens == "SENS" else sens,
+                                accel=(args.acceleration or None) if accel == "ACCEL" else accel))
         # library load follows whichever deck you are on
         controls.append(ctl(ch, 1, 18, f"musicLibrary.load{ch+1}", out=True))
         # globals need to exist on both channels because the proxy re-channels
@@ -180,6 +230,8 @@ def main():
     print(f"  LED feedback on {sum(1 for c in controls if 'output' in c)} controls")
     print(f"  SHIFT layer on  {sum(1 for c in controls if c.get('modifier'))} controls")
     print("  pad banks       " + ", ".join(f"{n} @ {b}-{b + 7}" for b, n, _, _ in PAD_BANKS))
+    print(f"  platter         CC 49 sensitivity {args.sensitivity}"
+          + (f", acceleration {args.acceleration}" if args.acceleration else ", no acceleration"))
     print("  every target checked against djay's own mappings"
           if dead == [] else "  djay not installed — targets unchecked")
     print(f"\nwritten   {args.dest}")

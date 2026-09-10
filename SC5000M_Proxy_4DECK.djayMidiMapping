@@ -781,6 +781,38 @@
 			<integer>49</integer>
 			<key>midiMessageType</key>
 			<integer>3</integer>
+			<key>rotaryAcceleration</key>
+			<integer>150</integer>
+			<key>rotarySensitivity</key>
+			<real>1.0</real>
+		</dict>
+		<dict>
+			<key>controlType</key>
+			<string>rotary-absolute</string>
+			<key>keyPath</key>
+			<string>turntable1.jogSeekMove</string>
+			<key>midiChannel</key>
+			<integer>0</integer>
+			<key>midiData</key>
+			<integer>49</integer>
+			<key>midiMessageType</key>
+			<integer>3</integer>
+			<key>modifier</key>
+			<true/>
+			<key>rotarySensitivity</key>
+			<real>1.0</real>
+		</dict>
+		<dict>
+			<key>controlType</key>
+			<string>rotary</string>
+			<key>keyPath</key>
+			<string>turntable1.pitchBendMove</string>
+			<key>midiChannel</key>
+			<integer>0</integer>
+			<key>midiData</key>
+			<integer>54</integer>
+			<key>midiMessageType</key>
+			<integer>3</integer>
 		</dict>
 		<dict>
 			<key>controlType</key>
@@ -1685,6 +1717,38 @@
 			<integer>1</integer>
 			<key>midiData</key>
 			<integer>49</integer>
+			<key>midiMessageType</key>
+			<integer>3</integer>
+			<key>rotaryAcceleration</key>
+			<integer>150</integer>
+			<key>rotarySensitivity</key>
+			<real>1.0</real>
+		</dict>
+		<dict>
+			<key>controlType</key>
+			<string>rotary-absolute</string>
+			<key>keyPath</key>
+			<string>turntable2.jogSeekMove</string>
+			<key>midiChannel</key>
+			<integer>1</integer>
+			<key>midiData</key>
+			<integer>49</integer>
+			<key>midiMessageType</key>
+			<integer>3</integer>
+			<key>modifier</key>
+			<true/>
+			<key>rotarySensitivity</key>
+			<real>1.0</real>
+		</dict>
+		<dict>
+			<key>controlType</key>
+			<string>rotary</string>
+			<key>keyPath</key>
+			<string>turntable2.pitchBendMove</string>
+			<key>midiChannel</key>
+			<integer>1</integer>
+			<key>midiData</key>
+			<integer>54</integer>
 			<key>midiMessageType</key>
 			<integer>3</integer>
 		</dict>
@@ -2593,6 +2657,38 @@
 			<integer>49</integer>
 			<key>midiMessageType</key>
 			<integer>3</integer>
+			<key>rotaryAcceleration</key>
+			<integer>150</integer>
+			<key>rotarySensitivity</key>
+			<real>1.0</real>
+		</dict>
+		<dict>
+			<key>controlType</key>
+			<string>rotary-absolute</string>
+			<key>keyPath</key>
+			<string>turntable3.jogSeekMove</string>
+			<key>midiChannel</key>
+			<integer>2</integer>
+			<key>midiData</key>
+			<integer>49</integer>
+			<key>midiMessageType</key>
+			<integer>3</integer>
+			<key>modifier</key>
+			<true/>
+			<key>rotarySensitivity</key>
+			<real>1.0</real>
+		</dict>
+		<dict>
+			<key>controlType</key>
+			<string>rotary</string>
+			<key>keyPath</key>
+			<string>turntable3.pitchBendMove</string>
+			<key>midiChannel</key>
+			<integer>2</integer>
+			<key>midiData</key>
+			<integer>54</integer>
+			<key>midiMessageType</key>
+			<integer>3</integer>
 		</dict>
 		<dict>
 			<key>controlType</key>
@@ -3497,6 +3593,38 @@
 			<integer>3</integer>
 			<key>midiData</key>
 			<integer>49</integer>
+			<key>midiMessageType</key>
+			<integer>3</integer>
+			<key>rotaryAcceleration</key>
+			<integer>150</integer>
+			<key>rotarySensitivity</key>
+			<real>1.0</real>
+		</dict>
+		<dict>
+			<key>controlType</key>
+			<string>rotary-absolute</string>
+			<key>keyPath</key>
+			<string>turntable4.jogSeekMove</string>
+			<key>midiChannel</key>
+			<integer>3</integer>
+			<key>midiData</key>
+			<integer>49</integer>
+			<key>midiMessageType</key>
+			<integer>3</integer>
+			<key>modifier</key>
+			<true/>
+			<key>rotarySensitivity</key>
+			<real>1.0</real>
+		</dict>
+		<dict>
+			<key>controlType</key>
+			<string>rotary</string>
+			<key>keyPath</key>
+			<string>turntable4.pitchBendMove</string>
+			<key>midiChannel</key>
+			<integer>3</integer>
+			<key>midiData</key>
+			<integer>54</integer>
 			<key>midiMessageType</key>
 			<integer>3</integer>
 		</dict>

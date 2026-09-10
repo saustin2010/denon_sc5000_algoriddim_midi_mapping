@@ -5,19 +5,43 @@ import Foundation
 
 var hwFilter = "SC5000"
 var virtName = "SC5000M Proxy"
-var dropSpec = "note:56,cc:54,cc:55,pitch"
+var dropSpec = "note:56,cc:55,pitch"
 var jogDivisor = 8          // platter ticks per seek step sent to the host
-var scratchIdle = 0.35      // stillness before we decide the hand is off.
+var scratchIdle = 0.05      // stillness before we decide the hand is off. With no
+                            // touch sensor this delay IS the pickup: djay holds the
+                            // track stopped until it lands, so 0.35 read as the track
+                            // stopping and restarting. Measured on a real scratch, the
+                            // platter goes still for 1ms median / 10ms at p99 between
+                            // moves -- and lastJogAt is stamped on every incoming
+                            // report before the dedupe, so slow movement that emits no
+                            // CC still counts as a hand on. Only a truly stationary
+                            // platter starts the countdown. 0.05 still clears the
+                            // measured 10ms p99 by 5x and is what finally made the
+                            // pickup feel right; raise toward 0.10 if holding the
+                            // platter still mid-scratch drops out of scratch mode.
                             // Must outlast the pause at a scratch turnaround, or
                             // reversing direction drops out of scratch mode and the
                             // track lurches back into normal playback.
 var scratchMax = 30.0       // pure safety net; real release comes from going idle
 var scratchEnter = 4        // sustained ticks needed to believe a hand is on the platter
-var scratchScale = 28.8     // measured: 3683 platter ticks per revolution, and CC 49
-                            // counts 0-127, so it wraps 28.8x per turn. At this scale
-                            // one revolution is one full sweep, as a jog wheel reports.
-var motorDebounce = 1.2     // the host blinks its play LED; only a state that holds
-                            // this long is real play/pause rather than a flash
+var scratchScale = 2.4      // platter ticks per unit handed to the host. The deck
+                            // reports 3683 ticks per revolution and CC 49 counts
+                            // 0-127, so it wraps 28.8x per turn. Dividing here rounds
+                            // to a whole CC step and throws that resolution away — at
+                            // 28.8 the finest move you can express is 1/128th of a
+                            // turn, which is why an exact spot on the grid is out of
+                            // reach. But djay does NOT gear in floating point: it
+                            // rounds each step to a whole internal unit, so a step
+                            // worth less than 1.0 mostly rounds to nothing and then
+                            // lurches when the backlog tips over. So do not pass every
+                            // tick -- fold 2.4 of them into one step that djay scales
+                            // by exactly 1.0 (build_mapping.py --sensitivity). Same
+                            // gearing, every step landing on djay's grid.
+var motorDebounce = 0.8     // djay blinks the play LED at 0.5s on/off for paused and
+                            // holds it solid for playing, so only a state that outlasts
+                            // one blink half-period is real. Must stay above 0.5s or a
+                            // blink reads as playing; every extra tenth is lag before
+                            // the platter starts, so 0.8 keeps a margin and stays brisk
 let enterWindow = 0.10
 var verbose = false
 var feedback = true
@@ -44,8 +68,24 @@ var padModeEnabled = true
 let padModeNotes = [27, 28, 29, 30]          // HOT CUE, ROLL, SLICER, LOOP
 let padModeBase  = [32, 80, 88, 96]          // note each bank starts at
 let padModeNames = ["hot cue", "roll", "slicer", "auto loop"]
-// one colour per mode, so the pads say which bank you are on
-var padModeColour = [4, 24, 34, 14]
+// Two colours per mode: the idle tint says which bank you are on, and the active
+// colour says the host has that pad lit — a roll held down, a loop running, a hot
+// cue that exists. Without the pair every pad in a bank looks the same, and djay's
+// note-off for a finished roll just leaves the pad dark.
+// Hot cue idles at 0 — dark. Its eight pads are eight independent slots, so an unlit
+// pad has to mean "no cue here"; tinting them all would hide the only thing worth
+// reading off the bank. The other three banks are one scale of one thing, where the
+// tint says which bank you are on and costs no information.
+var padModeColour  = [0, 24, 34, 14]     // idle: the bank's own tint, 0 for dark
+var padLitColour   = [45, 45, 45, 45]   // active: white, the one index that reads as
+                                        // lit against any of the bank tints
+// Hot cues are the one bank whose eight pads mean eight different things, so a cue
+// that exists lights in its own colour rather than a shared one — the pads read as a
+// map of the track instead of a row of identical lamps. Confirmed on hardware with
+// ledtest --colours: 1 blue, 8 green, 9 cyan, 16 red, 17 pink, 24 light green,
+// 25 white, 40 yellow. Ordered here to match djay's own cue colours as far as the
+// known indices allow — orange and purple are not found yet, so 2 and 8 stand in.
+var padCueColours = [16, 24, 1, 40, 8, 17, 9, 25]
 let jogCCs: Set<Int> = [17, 49, 54, 55]
 
 var argv = Array(CommandLine.arguments.dropFirst())
@@ -78,6 +118,8 @@ while ai < argv.count {
     case "--no-led-boost":  ledFull = false
     case "--no-pad-colour": padColour = false
     case "--pad-mode-colours": padModeColour = (next() ?? "").split(separator: ",").compactMap { Int($0) }
+    case "--pad-lit-colours": padLitColour = (next() ?? "").split(separator: ",").compactMap { Int($0) }
+    case "--pad-cue-colours": padCueColours = (next() ?? "").split(separator: ",").compactMap { Int($0) }
     case "--motor-debounce": motorDebounce = Double(next() ?? "") ?? motorDebounce
     case "-h", "--help":
         print("""
@@ -141,12 +183,26 @@ while ai < argv.count {
           mode its own eight targets. The mode buttons still reach the host, so
           djay's on-screen pad mode follows along.
 
+          Each bank has two colours: an idle tint that names the bank, and a lit
+          colour the pad takes while the host says that pad is active — a roll held
+          down, a loop running, a hot cue that exists. An unlit pad falls back to
+          the tint rather than going dark.
+
               --no-pad-modes    pads always send 32-39 whatever the mode
+              --pad-mode-colours <list>  idle tint per bank
+              --pad-lit-colours <list>   colour per bank while the host lights a pad
+              --pad-cue-colours <list>   colour per pad for a hot cue that exists
 
         Jog sensitivity:
           The platter reports about 250 ticks a second and hosts treat each tick as
           a full seek step, which makes scrubbing far too twitchy. The divisor sums
           ticks and emits one step per N of them.
+
+          Scratching is geared in the host instead. Dividing the platter down here
+          rounds every move to a whole CC step and costs you the deck's resolution,
+          so --scratch-scale defaults to 1 and the mapping carries a
+          rotarySensitivity (see build_mapping.py --sensitivity) that djay applies
+          in floating point. Raise --scratch-scale only to gear it down blind.
 
               --jog-divisor <n> platter ticks per seek step  (default 8;
                                 higher = less sensitive, 1 = raw)
@@ -289,6 +345,14 @@ var heldNotes = Set<UInt8>()             // notes held down on the current layer
 var padMode = 0                          // index into padModeBase
 var padHeldMode = [Int](repeating: -1, count: 8)   // mode each pad was pressed in, -1 = up
 
+// The host talks about every deck at once, but the deck has one set of LEDs. Remember
+// what the host last said for each deck and each note, show only the deck in focus,
+// and repaint from memory on a layer flip. Pads live here too — bank b pad i is note
+// padModeBase[b] + i — so a bank switch can restore what the host actually said
+// rather than blanket-tinting and then going dark at the first note-off.
+var ledShadow = [[UInt8]](repeating: [UInt8](repeating: 0, count: 128), count: 16)
+var ledSeen = Set<Int>()                 // notes the host has ever addressed
+
 func isChannelVoice(_ s: UInt8) -> Bool { s >= 0x80 && s < 0xF0 }
 
 /// Rewrites the channel nibble of a channel-voice message to the active layer,
@@ -415,15 +479,42 @@ func setMotor(_ on: Bool) {
     if verbose { print("  motor \(on ? "start" : "stop")") }
 }
 
-/// Lights the active mode button and tints the pads to match the bank.
+/// Sends one remembered LED state to the deck. Pads carry a colour index rather than
+/// a brightness, so an unlit pad becomes the bank's idle tint instead of going dark —
+/// otherwise a momentary target like a roll blacks its pad out on release and nothing
+/// ever lights it again.
+func paintNote(_ n: Int, _ v: UInt8) {
+    if padModeEnabled, let bank = padModeBase.firstIndex(where: { ($0...($0 + 7)).contains(n) }) {
+        guard bank == padMode else { return }        // stale bank: remembered, not on screen
+        let i = n - padModeBase[bank]
+        let lit = bank == 0 && i < padCueColours.count ? padCueColours[i] : padLitColour[bank]
+        let vel = padColour ? UInt8((v > 0 ? lit : padModeColour[bank]) & 0x7F) : v
+        if verbose { print("  pad   \(padModeNames[bank]) \(i + 1) -> colour \(vel)  (host said \(v))") }
+        toDevice([0x90, UInt8(32 + i), vel])
+        return
+    }
+    // Everything outside the pads and the platter ring is a single-colour LED, where
+    // velocity is brightness — confirmed on the loop group, which stays white however
+    // it is addressed. Only the two RGB controls take a colour index.
+    toDevice([0x90, UInt8(n), ledFull && v > 0 ? 127 : v])
+}
+
+/// Lights the active mode button and repaints the eight pads for the new bank.
 func showPadMode() {
     guard padModeEnabled else { return }
     for (i, n) in padModeNotes.enumerated() {
         toDevice([0x90, UInt8(n), i == padMode ? 127 : 0])
     }
-    if padColour {
-        for i in 0..<8 { toDevice([0x90, UInt8(32 + i), UInt8(padModeColour[padMode] & 0x7F)]) }
+    guard padColour else { return }
+    for i in 0..<8 { paintNote(padModeBase[padMode] + i, ledShadow[layer][padModeBase[padMode] + i]) }
+}
+
+/// Repaints every LED the host has ever addressed from the focused deck's memory.
+func showDeckLEDs() {
+    for n in ledSeen where !(padModeEnabled && padModeBase.contains(where: { ($0...($0 + 7)).contains(n) })) {
+        paintNote(n, ledShadow[layer][n])
     }
+    showPadMode()
 }
 
 /// Lights LAYER off deck 1, and tints the platter ring to the current deck's colour.
@@ -479,6 +570,7 @@ inSplitter.onMessage = { m in
             layer = (layer + 1) % layerCount
             flips += 1
             showLayer()
+            showDeckLEDs()          // the new deck's LEDs, as the host last described them
             print("  layer \(Character(UnicodeScalar(65 + layer)!)) — deck \(layer + 1) (channel \(layer + 1))")
         }
         return
@@ -603,23 +695,7 @@ if feedback, hwDst != nil {
     let outSplitter = Splitter()
     outSplitter.onMessage = { m in
         returned += 1
-        var out = m
-        // Pads answer on whichever bank they were sent on; fold them back to 32-39,
-        // which is where the hardware's pads actually live.
-        if padModeEnabled, m.count >= 3, (0x80...0x9F).contains(m[0]),
-           let bank = padModeBase.firstIndex(where: { (($0)...($0 + 7)).contains(Int(m[1])) }) {
-            guard bank == padMode else { return }        // stale bank: not on screen
-            out[1] = UInt8(32 + Int(m[1]) - padModeBase[bank])
-        }
-        if out.count >= 3, (out[0] & 0xF0) == 0x90, out[2] > 0 {
-            let n = Int(out[1])
-            if (32...39).contains(n) {
-                if padColour { out[2] = UInt8(padModeColour[padMode] & 0x7F) }
-            } else if ledFull, out[2] < 127 {
-                out[2] = 127
-            }
-        }
-        if verbose { print("  led   \(describe(out))") }
+        if verbose { print("  led   \(describe(m))") }
 
         // Play-button feedback for the layer we are on drives the platter motor.
         if motor, m.count >= 3, Int(m[1]) == playNote,
@@ -631,8 +707,20 @@ if feedback, hwDst != nil {
             }
         }
 
-        // The deck only has one platter, so re-address feedback to channel 1.
-        toDevice(isChannelVoice(out.first ?? 0) ? [(out[0] & 0xF0)] + out.dropFirst() : out)
+        // Note feedback is per deck. Remember it against the deck the host named and
+        // light it only while that deck is the one in focus, so the other decks do
+        // not fight over the single set of LEDs the deck actually has.
+        if m.count >= 3, (0x80...0x9F).contains(m[0]) {
+            let ch = Int(m[0] & 0x0F), n = Int(m[1])
+            let vel: UInt8 = (m[0] & 0xF0) == 0x90 ? m[2] : 0
+            ledShadow[ch][n] = vel
+            ledSeen.insert(n)
+            if ch == layer { paintNote(n, vel) }
+            return
+        }
+
+        // The deck only has one platter, so re-address everything else to channel 1.
+        toDevice(isChannelVoice(m.first ?? 0) ? [(m[0] & 0xF0)] + m.dropFirst() : m)
     }
     guard MIDIDestinationCreateWithBlock(client, virtName as CFString, &virtDst, { pktList, _ in
         let b = bytes(from: pktList)
@@ -650,12 +738,21 @@ idleTimer.setEventHandler {
         print("deck disconnected — exiting so a fresh copy can wait for it")
         exit(0)
     }
-    // Play state, once the LED has stopped flickering.
-    if motor, ledPlaying != playing,
-       Date().timeIntervalSince(ledPlayingSince) > motorDebounce {
-        playing = ledPlaying
-        if verbose { print("  play state -> \(playing ? "playing" : "paused")") }
-        setMotor(motorMode && playing)
+    // Play state. djay does not signal it by level: it holds the play LED solid to
+    // mean playing and BLINKS it at 0.5s on/off to mean paused, so "lit" alone is
+    // true half the time in both states. Steady-and-lit is the only reading that
+    // means playing, and it has to be derived every tick rather than latched --
+    // waiting for the level to hold still before adopting it never fires at all
+    // while the LED is blinking, so the last value froze in place and the motor
+    // spun on through pause. A blink now simply fails "steady" and reads as paused.
+    if motor {
+        let steady = Date().timeIntervalSince(ledPlayingSince) > motorDebounce
+        let nowPlaying = ledPlaying && steady
+        if nowPlaying != playing {
+            playing = nowPlaying
+            if verbose { print("  play state -> \(playing ? "playing" : "paused")") }
+            setMotor(motorMode && playing)
+        }
     }
 
     guard scratching else { return }
@@ -698,7 +795,7 @@ if layerEnabled {
 } else {
     print("layer: disabled — everything passes on its original channel")
 }
-print("led  : \(ledFull ? "buttons at full brightness" : "host level")\(padColour ? ", pads tinted per bank \(padModeColour.map(String.init).joined(separator: "/"))" : "")")
+print("led  : \(ledFull ? "buttons at full brightness" : "host level")\(padColour ? ", pads \(padModeColour.map(String.init).joined(separator: "/")) idle, \(padLitColour.map(String.init).joined(separator: "/")) lit, cues \(padCueColours.map(String.init).joined(separator: "/"))" : "")")
 print("jog  : scratch on \(scratchEnter)+ ticks in \(Int(enterWindow * 1000))ms, release after \(Int(scratchIdle * 1000))ms idle, scale 1/\(scratchScale)")
 print("pads : \(padModeEnabled ? "HOT CUE/ROLL/SLICER/LOOP switch banks — notes \(padModeBase.map(String.init).joined(separator: "/")) + 0-7" : "always 32-39")")
 print("gate : \(jogGate ? "motor rotation discarded while spinning; STOP MOTOR (note \(vinylNote)) frees the platter" : "ungated")")
