@@ -1,0 +1,11 @@
+# compiled binaries — rebuild with swiftc, and they embed local build paths
+ledtest
+midimon
+midiproxy
+motorhunt
+screenprobe
+
+# a saved chat transcript, not project source
+claude_web_convo/
+
+.DS_Store
