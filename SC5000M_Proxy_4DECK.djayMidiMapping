@@ -654,7 +654,7 @@
 		</dict>
 		<dict>
 			<key>keyPath</key>
-			<string>turntable1.autoLoop025BeatInterval</string>
+			<string>turntable1.autoLoop00625BeatInterval</string>
 			<key>midiChannel</key>
 			<integer>0</integer>
 			<key>midiData</key>
@@ -666,7 +666,7 @@
 		</dict>
 		<dict>
 			<key>keyPath</key>
-			<string>turntable1.autoLoop05BeatInterval</string>
+			<string>turntable1.autoLoop0125BeatInterval</string>
 			<key>midiChannel</key>
 			<integer>0</integer>
 			<key>midiData</key>
@@ -678,7 +678,7 @@
 		</dict>
 		<dict>
 			<key>keyPath</key>
-			<string>turntable1.autoLoop1BeatInterval</string>
+			<string>turntable1.autoLoop025BeatInterval</string>
 			<key>midiChannel</key>
 			<integer>0</integer>
 			<key>midiData</key>
@@ -690,7 +690,7 @@
 		</dict>
 		<dict>
 			<key>keyPath</key>
-			<string>turntable1.autoLoop2BeatInterval</string>
+			<string>turntable1.autoLoop05BeatInterval</string>
 			<key>midiChannel</key>
 			<integer>0</integer>
 			<key>midiData</key>
@@ -702,7 +702,7 @@
 		</dict>
 		<dict>
 			<key>keyPath</key>
-			<string>turntable1.autoLoop4BeatInterval</string>
+			<string>turntable1.autoLoop1BeatInterval</string>
 			<key>midiChannel</key>
 			<integer>0</integer>
 			<key>midiData</key>
@@ -714,7 +714,7 @@
 		</dict>
 		<dict>
 			<key>keyPath</key>
-			<string>turntable1.autoLoop8BeatInterval</string>
+			<string>turntable1.autoLoop2BeatInterval</string>
 			<key>midiChannel</key>
 			<integer>0</integer>
 			<key>midiData</key>
@@ -726,7 +726,7 @@
 		</dict>
 		<dict>
 			<key>keyPath</key>
-			<string>turntable1.autoLoop16BeatInterval</string>
+			<string>turntable1.autoLoop4BeatInterval</string>
 			<key>midiChannel</key>
 			<integer>0</integer>
 			<key>midiData</key>
@@ -738,7 +738,7 @@
 		</dict>
 		<dict>
 			<key>keyPath</key>
-			<string>turntable1.autoLoop32BeatInterval</string>
+			<string>turntable1.autoLoop8BeatInterval</string>
 			<key>midiChannel</key>
 			<integer>0</integer>
 			<key>midiData</key>
@@ -1592,7 +1592,7 @@
 		</dict>
 		<dict>
 			<key>keyPath</key>
-			<string>turntable2.autoLoop025BeatInterval</string>
+			<string>turntable2.autoLoop00625BeatInterval</string>
 			<key>midiChannel</key>
 			<integer>1</integer>
 			<key>midiData</key>
@@ -1604,7 +1604,7 @@
 		</dict>
 		<dict>
 			<key>keyPath</key>
-			<string>turntable2.autoLoop05BeatInterval</string>
+			<string>turntable2.autoLoop0125BeatInterval</string>
 			<key>midiChannel</key>
 			<integer>1</integer>
 			<key>midiData</key>
@@ -1616,7 +1616,7 @@
 		</dict>
 		<dict>
 			<key>keyPath</key>
-			<string>turntable2.autoLoop1BeatInterval</string>
+			<string>turntable2.autoLoop025BeatInterval</string>
 			<key>midiChannel</key>
 			<integer>1</integer>
 			<key>midiData</key>
@@ -1628,7 +1628,7 @@
 		</dict>
 		<dict>
 			<key>keyPath</key>
-			<string>turntable2.autoLoop2BeatInterval</string>
+			<string>turntable2.autoLoop05BeatInterval</string>
 			<key>midiChannel</key>
 			<integer>1</integer>
 			<key>midiData</key>
@@ -1640,7 +1640,7 @@
 		</dict>
 		<dict>
 			<key>keyPath</key>
-			<string>turntable2.autoLoop4BeatInterval</string>
+			<string>turntable2.autoLoop1BeatInterval</string>
 			<key>midiChannel</key>
 			<integer>1</integer>
 			<key>midiData</key>
@@ -1652,7 +1652,7 @@
 		</dict>
 		<dict>
 			<key>keyPath</key>
-			<string>turntable2.autoLoop8BeatInterval</string>
+			<string>turntable2.autoLoop2BeatInterval</string>
 			<key>midiChannel</key>
 			<integer>1</integer>
 			<key>midiData</key>
@@ -1664,7 +1664,7 @@
 		</dict>
 		<dict>
 			<key>keyPath</key>
-			<string>turntable2.autoLoop16BeatInterval</string>
+			<string>turntable2.autoLoop4BeatInterval</string>
 			<key>midiChannel</key>
 			<integer>1</integer>
 			<key>midiData</key>
@@ -1676,7 +1676,7 @@
 		</dict>
 		<dict>
 			<key>keyPath</key>
-			<string>turntable2.autoLoop32BeatInterval</string>
+			<string>turntable2.autoLoop8BeatInterval</string>
 			<key>midiChannel</key>
 			<integer>1</integer>
 			<key>midiData</key>
@@ -2530,7 +2530,7 @@
 		</dict>
 		<dict>
 			<key>keyPath</key>
-			<string>turntable3.autoLoop025BeatInterval</string>
+			<string>turntable3.autoLoop00625BeatInterval</string>
 			<key>midiChannel</key>
 			<integer>2</integer>
 			<key>midiData</key>
@@ -2542,7 +2542,7 @@
 		</dict>
 		<dict>
 			<key>keyPath</key>
-			<string>turntable3.autoLoop05BeatInterval</string>
+			<string>turntable3.autoLoop0125BeatInterval</string>
 			<key>midiChannel</key>
 			<integer>2</integer>
 			<key>midiData</key>
@@ -2554,7 +2554,7 @@
 		</dict>
 		<dict>
 			<key>keyPath</key>
-			<string>turntable3.autoLoop1BeatInterval</string>
+			<string>turntable3.autoLoop025BeatInterval</string>
 			<key>midiChannel</key>
 			<integer>2</integer>
 			<key>midiData</key>
@@ -2566,7 +2566,7 @@
 		</dict>
 		<dict>
 			<key>keyPath</key>
-			<string>turntable3.autoLoop2BeatInterval</string>
+			<string>turntable3.autoLoop05BeatInterval</string>
 			<key>midiChannel</key>
 			<integer>2</integer>
 			<key>midiData</key>
@@ -2578,7 +2578,7 @@
 		</dict>
 		<dict>
 			<key>keyPath</key>
-			<string>turntable3.autoLoop4BeatInterval</string>
+			<string>turntable3.autoLoop1BeatInterval</string>
 			<key>midiChannel</key>
 			<integer>2</integer>
 			<key>midiData</key>
@@ -2590,7 +2590,7 @@
 		</dict>
 		<dict>
 			<key>keyPath</key>
-			<string>turntable3.autoLoop8BeatInterval</string>
+			<string>turntable3.autoLoop2BeatInterval</string>
 			<key>midiChannel</key>
 			<integer>2</integer>
 			<key>midiData</key>
@@ -2602,7 +2602,7 @@
 		</dict>
 		<dict>
 			<key>keyPath</key>
-			<string>turntable3.autoLoop16BeatInterval</string>
+			<string>turntable3.autoLoop4BeatInterval</string>
 			<key>midiChannel</key>
 			<integer>2</integer>
 			<key>midiData</key>
@@ -2614,7 +2614,7 @@
 		</dict>
 		<dict>
 			<key>keyPath</key>
-			<string>turntable3.autoLoop32BeatInterval</string>
+			<string>turntable3.autoLoop8BeatInterval</string>
 			<key>midiChannel</key>
 			<integer>2</integer>
 			<key>midiData</key>
@@ -3468,7 +3468,7 @@
 		</dict>
 		<dict>
 			<key>keyPath</key>
-			<string>turntable4.autoLoop025BeatInterval</string>
+			<string>turntable4.autoLoop00625BeatInterval</string>
 			<key>midiChannel</key>
 			<integer>3</integer>
 			<key>midiData</key>
@@ -3480,7 +3480,7 @@
 		</dict>
 		<dict>
 			<key>keyPath</key>
-			<string>turntable4.autoLoop05BeatInterval</string>
+			<string>turntable4.autoLoop0125BeatInterval</string>
 			<key>midiChannel</key>
 			<integer>3</integer>
 			<key>midiData</key>
@@ -3492,7 +3492,7 @@
 		</dict>
 		<dict>
 			<key>keyPath</key>
-			<string>turntable4.autoLoop1BeatInterval</string>
+			<string>turntable4.autoLoop025BeatInterval</string>
 			<key>midiChannel</key>
 			<integer>3</integer>
 			<key>midiData</key>
@@ -3504,7 +3504,7 @@
 		</dict>
 		<dict>
 			<key>keyPath</key>
-			<string>turntable4.autoLoop2BeatInterval</string>
+			<string>turntable4.autoLoop05BeatInterval</string>
 			<key>midiChannel</key>
 			<integer>3</integer>
 			<key>midiData</key>
@@ -3516,7 +3516,7 @@
 		</dict>
 		<dict>
 			<key>keyPath</key>
-			<string>turntable4.autoLoop4BeatInterval</string>
+			<string>turntable4.autoLoop1BeatInterval</string>
 			<key>midiChannel</key>
 			<integer>3</integer>
 			<key>midiData</key>
@@ -3528,7 +3528,7 @@
 		</dict>
 		<dict>
 			<key>keyPath</key>
-			<string>turntable4.autoLoop8BeatInterval</string>
+			<string>turntable4.autoLoop2BeatInterval</string>
 			<key>midiChannel</key>
 			<integer>3</integer>
 			<key>midiData</key>
@@ -3540,7 +3540,7 @@
 		</dict>
 		<dict>
 			<key>keyPath</key>
-			<string>turntable4.autoLoop16BeatInterval</string>
+			<string>turntable4.autoLoop4BeatInterval</string>
 			<key>midiChannel</key>
 			<integer>3</integer>
 			<key>midiData</key>
@@ -3552,7 +3552,7 @@
 		</dict>
 		<dict>
 			<key>keyPath</key>
-			<string>turntable4.autoLoop32BeatInterval</string>
+			<string>turntable4.autoLoop8BeatInterval</string>
 			<key>midiChannel</key>
 			<integer>3</integer>
 			<key>midiData</key>

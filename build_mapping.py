@@ -47,7 +47,10 @@ DECK_NOTES = [
 # one of these note ranges; each bank therefore gets eight independent targets.
 # The base notes must match padModeBase in midiproxy.swift.
 ROLL  = ["003125", "00625", "0125", "025", "05", "1", "2", "4"]
-ALOOP = ["025", "05", "1", "2", "4", "8", "16", "32"]
+# Lowest on the left. djay has no autoLoop003125, so 1/16 is the floor -- 1/32 is a
+# roll-only interval and ROLL above already starts there. Buys the short end at the
+# cost of the 16 and 32 beat loops off the right.
+ALOOP = ["00625", "0125", "025", "05", "1", "2", "4", "8"]
 
 # base note, name, eight targets, eight SHIFT targets (or None)
 PAD_BANKS = [
