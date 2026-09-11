@@ -207,14 +207,21 @@ while ai < argv.count {
           a full seek step, which makes scrubbing far too twitchy. The divisor sums
           ticks and emits one step per N of them.
 
-          Scratching is geared in the host instead. Dividing the platter down here
-          rounds every move to a whole CC step and costs you the deck's resolution,
-          so --scratch-scale defaults to 1 and the mapping carries a
-          rotarySensitivity (see build_mapping.py --sensitivity) that djay applies
-          in floating point. Raise --scratch-scale only to gear it down blind.
+          Scratching is geared by two numbers that MULTIPLY: --scratch-scale here
+          and rotarySensitivity in the mapping (build_mapping.py --sensitivity).
+          djay rounds each step to a whole internal unit, so a sensitivity under
+          1.0 rounds most steps away and then lurches — keep it at 1.0 or above
+          and gear down here instead. 2.4 ticks per step against sensitivity 1.0
+          is 1:1 vinyl with every step landing on djay's grid.
 
               --jog-divisor <n> platter ticks per seek step  (default 8;
                                 higher = less sensitive, 1 = raw)
+              --motor-touch     EXPERIMENTAL: subtract the motor's learned rate
+                                and forward the residual, so a driven platter can
+                                still scratch. Off by default and best left off —
+                                a hand moving at the motor's own speed reads as no
+                                hand, and a throw wraps the 7-bit CC and plays
+                                backwards. See the note on motorTouch in source.
           -w, --wait          wait for the deck instead of exiting when it is
                               absent, and exit if it later goes away — so a
                               supervisor (see the LaunchAgent in the README) can

@@ -139,7 +139,7 @@ and CC 55** in lockstep (equal counts), plus pitch bend:
 is never sent by this deck — verified by resting a hand on a stationary platter with
 the motor off and capturing nothing at all. The deck therefore cannot distinguish
 motor rotation from a hand, and a host that drives the motor must discard the
-rotation it caused or it will seek through the track at roughly 750 units/second.
+rotation it caused or it will seek through the track at roughly 2000 ticks/second.
 
 ### Platter resolution and motor speed
 
@@ -149,13 +149,25 @@ Measured by turning the platter through exactly one revolution and counting tick
 |---|---|
 | Ticks per revolution | **3683** |
 | CC 49 wraps per revolution | 28.8 (CC 49 counts 0-127) |
-| Reported tick rate under motor | ~750 ticks/second |
+| Position rate under motor | **~2000 ticks/second** |
+| Motor speed | **~32.6 RPM — i.e. 33 1/3** |
 
-**The tick rate does not reveal the motor's speed.** Each tick emits five messages
-(CC 17, 49, 54, 55 and pitch bend), so 750 ticks/s is already ~3750 messages/s. At
-33 1/3 RPM the platter would turn 2045 ticks/s and need over 10000 messages/s, which
-USB MIDI cannot carry. The deck therefore rate-limits its reporting, and rotation
-speed must be measured visually rather than inferred from MIDI.
+**The motor speed *can* be read over MIDI — but only from the position counter, never
+from message counts.** An earlier reading of ~750 ticks/second was a message rate
+mistaken for a tick rate. The deck does not emit one message per tick: it reports
+position roughly 450 times a second, and each report advances the counter by one to
+four ticks. Counting messages therefore undercounts rotation by about a factor of
+four, which is what made 33 1/3 RPM look impossible for USB MIDI to carry.
+
+Measured properly — unwrapping `(CC 17 << 7) | CC 49` and differencing it over a
+window — the counter advances ~2000 ticks/s while the motor drives. At 3683 ticks per
+revolution that is 0.543 rev/s, or **32.6 RPM**: 33 1/3 within measurement error
+(33 1/3 would be 2046 ticks/s). So the motor is not some arbitrary fixed speed, it is
+a turntable running at standard vinyl speed.
+
+Measure a rate over a window, not per message. Each report carries one to four whole
+ticks over one to four milliseconds, so an instantaneous `d/dt` swings by ±1000
+ticks/s on the integer quantum alone.
 
 **The motor has one speed and no direction control.** Values 0-127 on both CC 65 and
 CC 67 produce identical forward rotation. Notes do not drive the motor. Matching a
