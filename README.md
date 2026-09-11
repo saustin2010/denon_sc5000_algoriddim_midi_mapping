@@ -116,7 +116,14 @@ snaps back on release. Without it, scratching drags the playhead and the track h
 pick itself back up. It is the Slip button (note 23) — no menu needed.
 
 **Motor** (`--motor`, off by default; SHIFT+Vinyl toggles it). The motor turns the
-platter at 33 1/3 RPM to show a deck is playing, driven from djay's play LED.
+platter at 33 1/3 RPM to show a deck is playing, driven from djay's play LED — which
+signals state by *steadiness*, not level: solid means playing, a 0.5 s blink means
+paused, so `--motor-debounce` must outlast one blink half-period.
+
+Even with `--motor` passed, it starts in **manual** mode. Motor mode costs you
+scratching outright, so it has to be asked for. Spin-down ends when the platter stops
+reporting rotation rather than after a fixed wait, so the platter frees up as soon as
+it has actually stopped.
 
 While it spins, **scratching is off**. The deck reports no touch, so the proxy cannot
 tell your hand from the motor, and ungated a driven platter seeks through the track at

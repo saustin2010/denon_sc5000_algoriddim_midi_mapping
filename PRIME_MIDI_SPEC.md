@@ -100,8 +100,10 @@ confirmed by capture (note-on 127 on press, note-off 0 on release, channel 1):
 | 14 | 0x0E | VIEW |
 | 15 | 0x0F | unknown — no corresponding button on this unit |
 
-Note 19, which the LC6000 spec calls "Vinyl", is the **STOP MOTOR** button on the
-SC5000M. It behaves as an ordinary momentary button.
+Note 19 is the **Vinyl** button, exactly as the LC6000 spec names it, and note 23 is
+**Slip** — both ordinary momentary buttons. An earlier note here called note 19 "STOP
+MOTOR", which was this project's own use for it rather than the panel legend; the
+proxy now takes it only with SHIFT held and leaves the plain press to the host.
 
 **LAYER does emit MIDI in Computer mode.** This contradicts the widely repeated
 claim that it is silent; earlier attempts failed because they guessed note 23.
@@ -122,7 +124,8 @@ CC and detecting the rotation the deck reports back.
 
 **The value byte is ignored** — any value, including 0, triggers the command. There is
 no speed control and no reverse: values 0 through 127 all produce identical forward
-rotation of roughly 750 jog units per second. CC 69 appears to respond only because
+rotation of roughly 2000 ticks per second — see the corrected measurement below, and
+note the older figure of 750 was a message count. CC 69 appears to respond only because
 the platter is still coasting; with a 3.5 s settle gap it produces nothing.
 
 While the platter turns, the deck streams its rotation back on **CC 17, CC 49, CC 54
