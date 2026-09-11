@@ -189,6 +189,14 @@ shape for host-drawn video and the interface claims cleanly from userspace, but 
 stays silent until a host initialises it and the protocol is undocumented. djay ships
 no driver for it. See the spec's final section for the full findings.
 
+## Getting off the Mac — see IOS_PORT_PLAN.md
+
+iOS already enumerates the deck: `SC5000M Prime Controller Jack 1` appears over USB on
+an iPhone in Computer mode. The engine is portable too — CoreMIDI and Foundation only,
+no IOKit or AppKit anywhere — so what stands between here and running this off an iPad
+is packaging, plus one unverified question about whether djay on iOS can load a custom
+mapping at all. `IOS_PORT_PLAN.md` has the audit, the risks and a phased plan.
+
 ## macOS only
 
 `midiproxy` is a macOS command-line binary using CoreMIDI virtual endpoints. It does
