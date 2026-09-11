@@ -219,6 +219,52 @@ take compressed frames — most plausibly one JPEG each. At that size a frame is
 each bound by USB id through a hidden, control-free stub mapping. There is no SC5000 or
 SC6000 display class in the binary at all — djay's Denon SC support is MIDI only.
 
-Next step if this is ever picked up: listen on endpoint 0x83 while touching the screen.
-Touch packets are usually easy to decode, and it proves the interface can be claimed
-without sending anything.
+### Tested: the panel is silent until a host initialises it
+
+That next step has now been taken. `screenprobe --listen 83` claims the interface
+cleanly **without sudo** — nothing on macOS holds it, so a userspace program can own
+this device. But touching the screen produces **no packets at all**: the read blocks
+indefinitely, no error, no data. Touch is therefore gated behind the same undocumented
+initialisation as graphics, and is not the cheap first win it looked like.
+
+### djay's Denon displays are a different architecture, and cannot be borrowed
+
+djay's `DenonLC6000Display` and `DenonPrime4WheelDisplay` drive their panels **over
+MIDI**, not over USB bulk. Their mapping files carry `endpointName` values that are
+MIDI port names ("Denon DJ LC6000 Wheel Display"), a `customClassName` naming a
+compiled class, and `hidden = True`; the selectors in the binary
+(`sendDecodeImageMessageWithmidiPID:midiDeviceID:fromMidiSender:`,
+`writeImage:ofType:withDevice:`) confirm image transfer through a MIDI sender.
+
+The SC5000M screen presents no MIDI endpoint — it is absent from the CoreMIDI source
+list — so none of that applies. djay's binary contains no reference to product `a00a`
+in any form.
+
+### No prior art, and no traffic to capture
+
+Public Denon reverse-engineering (deathcamel58's Engine OS work, the Mixxx wiki) covers
+Engine OS, the library database and SoundSwitch. Nothing covers the display protocol,
+`15e4:a00a`, frame format or touch packets.
+
+Worse, there appears to be **no host software that drives this interface at all** —
+djay has no code for it, and Denon's own Engine Desktop does not push a UI to a
+standalone player's screen. So there is no reference traffic to capture and learn from,
+which is how every comparable protocol has been cracked. Driving this panel would mean
+guessing an undocumented framing on 0x04/0x02 with no feedback channel: no error codes,
+no partial success, and no way to tell a wrong magic number from a wrong resolution
+from a missing init step.
+
+If it is ever picked up again, the only routes with real odds are: capture traffic from
+something that genuinely drives the interface (if such a host is ever found), or pull
+the protocol out of the deck's own firmware image, where it certainly exists.
+
+### The screen is not reachable over the network either
+
+The deck's Wi-Fi carries streaming services (Beatport/Beatsource Link, TIDAL,
+SoundCloud Go+, Dropbox) and Engine Connect / StagelinQ. StagelinQ sends deck state
+**out** to drive SoundSwitch and Resolume; nothing accepts graphics in. There is no
+browser and no video playback. Engine OS renders the panel itself.
+
+**The one supported way to put your own graphics on that screen is album art.** The
+deck analyses and displays track artwork, so artwork embedded in the files is drawn on
+the panel — arbitrary images, no hacking required.
