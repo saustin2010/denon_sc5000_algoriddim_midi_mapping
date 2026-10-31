@@ -120,9 +120,11 @@ by playing on it rather than by logs.*
 
 ### P3 — settings and survival
 
-A screen for what the flags cover today — deck count, `--scratch-scale`,
-`--scratch-idle`, motor on/off — plus reconnect handling when the deck is power-cycled
-mid-set, which the LaunchAgent does now.
+A screen for what the prefs page covers on the Mac — deck count, gearing, pickup
+delay, scratch engine, motor on/off — plus reconnect handling when the deck is
+power-cycled mid-set, which the LaunchAgent does now. The proxy already reads these from
+a JSON file and applies them live (`loadPrefs` / `reloadPrefs`), so an iOS settings
+screen only has to write the same keys.
 
 *Exit: a full set played from the iPad, deck power-cycled once mid-set without touching
 the app.*

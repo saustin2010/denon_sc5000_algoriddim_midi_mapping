@@ -1,0 +1,531 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SC5000M Proxy</title>
+<style>
+:root {
+  --bg: #0f1113; --panel: #171a1d; --panel-2: #1e2226; --line: #2a2f35;
+  --text: #e8eaed; --muted: #8b939c; --faint: #5c646d;
+  --accent: #35c2a4; --accent-ink: #062a22; --warn: #e6a23c; --bad: #e5604f;
+  --raw: #35c2a4; --out: #e6a23c; --scratch: rgba(53, 194, 164, .13);
+  --radius: 10px;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #f3f4f6; --panel: #ffffff; --panel-2: #f6f7f9; --line: #dfe2e6;
+    --text: #15181b; --muted: #5d6670; --faint: #9aa2ab;
+    --accent: #11937a; --accent-ink: #ffffff; --raw: #11937a; --out: #c27a12;
+    --scratch: rgba(17, 147, 122, .10);
+    color-scheme: light;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+}
+header {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px;
+  padding: 18px 24px; border-bottom: 1px solid var(--line); background: var(--panel);
+}
+header h1 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: .01em; }
+header .spacer { flex: 1; }
+.pill {
+  display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px;
+  border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 12.5px;
+}
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+.dot.ok { background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
+.dot.warn { background: var(--warn); }
+.dot.bad { background: var(--bad); }
+main {
+  display: grid; gap: 18px; padding: 20px 24px 40px; max-width: 1240px; margin: 0 auto;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+}
+@media (max-width: 900px) { main { grid-template-columns: minmax(0, 1fr); padding: 16px; } header { padding: 14px 16px; } }
+.col { display: grid; gap: 18px; align-content: start; min-width: 0; }
+section { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px; min-width: 0; }
+section > h2 { margin: 0 0 4px; font-size: 13px; font-weight: 650; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+section > .lede { margin: 0 0 14px; color: var(--muted); font-size: 13px; }
+.row { padding: 12px 0; border-top: 1px solid var(--line); }
+.row:first-of-type { border-top: 0; }
+.row-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.row label, .row .label { font-weight: 560; }
+.value { font-variant-numeric: tabular-nums; color: var(--text); white-space: nowrap; }
+.value small { color: var(--muted); font-weight: 400; margin-left: 6px; }
+.help { margin: 6px 0 0; color: var(--muted); font-size: 12.5px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel-2); }
+.seg button {
+  appearance: none; border: 0; background: transparent; color: var(--muted); font: inherit;
+  padding: 7px 14px; cursor: pointer; border-left: 1px solid var(--line);
+}
+.seg button:first-child { border-left: 0; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.seg button:focus-visible, .switch input:focus-visible + span, .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.seg.wide { display: flex; } .seg.wide button { flex: 1; }
+input[type=range] { width: 100%; margin: 10px 0 0; accent-color: var(--accent); }
+.switch { position: relative; display: inline-block; width: 40px; height: 22px; flex: none; }
+.switch input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.switch span { position: absolute; inset: 0; border-radius: 999px; background: var(--line); transition: background .15s; pointer-events: none; }
+.switch span::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.switch input:checked + span { background: var(--accent); }
+.switch input:checked + span::after { transform: translateX(18px); }
+.btn {
+  appearance: none; border: 1px solid var(--line); background: var(--panel-2); color: var(--text);
+  font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 7px; cursor: pointer;
+}
+.btn:hover { border-color: var(--faint); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 600; }
+.saved { font-size: 12.5px; color: var(--muted); min-width: 9em; text-align: right; transition: opacity .3s; }
+.saved.err { color: var(--bad); }
+.note { margin-top: 10px; padding: 9px 12px; border-radius: 8px; background: var(--panel-2); color: var(--muted); font-size: 12.5px; border: 1px solid var(--line); }
+.note b { color: var(--text); font-weight: 600; }
+.meters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 6px 0 12px; }
+.meter { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; min-width: 0; }
+.meter .k { font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; }
+.meter .v { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 2px; white-space: nowrap; }
+.meter .v small { font-size: 12px; color: var(--muted); font-weight: 400; margin-left: 3px; }
+.lamp { display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: var(--line); vertical-align: 2px; margin-right: 6px; }
+.lamp.on { background: var(--accent); box-shadow: 0 0 10px var(--accent); }
+canvas { display: block; width: 100%; height: 190px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; color: var(--muted); font-size: 12.5px; }
+.legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: 3px; margin-right: 6px; }
+.counts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px 16px; margin-top: 14px; }
+.counts div { display: flex; justify-content: space-between; gap: 8px; border-bottom: 1px dashed var(--line); padding-bottom: 4px; font-size: 13px; }
+.counts span { color: var(--muted); }
+.counts b { font-variant-numeric: tabular-nums; font-weight: 600; }
+.counts b.bad { color: var(--bad); }
+.ports { font-size: 12.5px; color: var(--muted); margin-top: 10px; }
+pre.log {
+  margin: 0; max-height: 260px; overflow: auto; padding: 10px 12px; border-radius: 8px;
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--muted);
+  font: 11.5px/1.5 ui-monospace, "SF Mono", Menlo, monospace; white-space: pre-wrap; word-break: break-word;
+}
+footer { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; color: var(--faint); font-size: 12px; }
+footer code { font: 11.5px ui-monospace, "SF Mono", Menlo, monospace; color: var(--muted); word-break: break-all; }
+</style>
+</head>
+<body>
+<header>
+  <h1>SC5000M Proxy</h1>
+  <span class="pill" id="agentPill"><span class="dot"></span><span>Proxy …</span></span>
+  <span class="pill" id="deckPill"><span class="dot"></span><span>Deck …</span></span>
+  <span class="spacer"></span>
+  <span class="saved" id="saved" aria-live="polite"></span>
+  <button class="btn" id="restart" title="Restart the proxy service">Restart proxy</button>
+</header>
+
+<main>
+  <div class="col">
+    <section>
+      <h2>Decks</h2>
+      <p class="lede">How many decks the LAYER button cycles through.</p>
+      <div class="row">
+        <div class="seg" data-key="decks" role="group" aria-label="Decks">
+          <button data-v="2">2 decks</button><button data-v="3">3 decks</button><button data-v="4">4 decks</button>
+        </div>
+        <p class="help">The mapping in djay already covers all four, so this applies the moment you change it. Leaving a deck that is switched off sends LAYER back to deck 1.</p>
+      </div>
+    </section>
+
+    <section>
+      <h2>Platter</h2>
+      <p class="lede">Changes apply live. Leave the jog test running and scratch while you adjust.</p>
+
+      <div class="row">
+        <div class="row-head"><span class="label">Touching a playing track</span></div>
+        <div class="seg wide" data-key="whilePlaying" role="group" aria-label="Platter on a playing track" style="margin-top:10px">
+          <button data-v="nudge">Nudges tempo</button><button data-v="scratch">Scratches</button><button data-v="ignore">Does nothing</button>
+        </div>
+        <p class="help">What the platter does while djay plays the deck. Nudge is djay's pitch bend, like the edge of a CDJ jog wheel, so a touch never grabs the track. A paused track always scratches, and SHIFT + platter always seeks.</p>
+      </div>
+
+      <div class="row">
+        <div class="row-head"><span class="label">Who decides you let go</span></div>
+        <div class="seg wide" data-key="scratchEngine" role="group" aria-label="Scratch engine" style="margin-top:10px">
+          <button data-v="touch">Proxy (touch note)</button><button data-v="notouch">djay (no-touch)</button>
+        </div>
+        <p class="help" id="engineHelp"></p>
+      </div>
+
+      <div class="row">
+        <div class="row-head">
+          <label for="coastRelease">Let go when the platter coasts</label>
+          <label class="switch"><input type="checkbox" id="coastRelease" data-key="coastRelease"><span></span></label>
+        </div>
+        <p class="help">With the motor off the platter spins free, so a push, a brush or a throw leaves it coasting for seconds. On: once only momentum is turning it, the track plays on and the coast is ignored until your hand moves it again. Off: the track follows the platter until it stops.</p>
+      </div>
+
+      <div class="row">
+        <div class="row-head">
+          <label for="scratchAccel">Throw boost</label>
+          <label class="switch"><input type="checkbox" id="scratchAccel" data-key="scratchAccel"><span></span></label>
+        </div>
+        <p class="help">djay's acceleration curve: slow moves stay 1:1, fast throws travel further. Off is strictly linear, so every move goes exactly as far as your hand.</p>
+      </div>
+
+      <div class="row">
+        <div class="row-head"><label for="scratchScale">Gearing</label><span class="value" id="scratchScaleV"></span></div>
+        <input type="range" id="scratchScale" data-key="scratchScale" min="1" max="8" step="0.1">
+        <p class="help">Platter ticks per step sent to djay. 2.4 is 1:1 vinyl: one turn of the platter is one turn of djay's on-screen platter. Higher is slower.</p>
+      </div>
+
+      <div class="row" id="idleRow">
+        <div class="row-head"><label for="scratchIdleMs">Pickup delay</label><span class="value" id="scratchIdleMsV"></span></div>
+        <input type="range" id="scratchIdleMs" data-key="scratchIdleMs" min="10" max="300" step="5">
+        <p class="help">How long the platter has to be still before the track plays on. The deck has no touch sensor, so this stillness is the release. Raise it if holding the platter mid-scratch drops out; lower it for a snappier pickup.</p>
+      </div>
+
+      <div class="row">
+        <div class="row-head"><label for="scratchEnter">Engage after</label><span class="value" id="scratchEnterV"></span></div>
+        <input type="range" id="scratchEnter" data-key="scratchEnter" min="1" max="12" step="1">
+        <p class="help">Movement reports needed within 100 ms before a scratch starts. Filters the stray ticks a settling platter gives off. Lower reacts to the smallest touch; higher ignores more bumps.</p>
+      </div>
+
+      <div class="row">
+        <div class="row-head"><label for="jogDivisor">Pitch-bend gearing</label><span class="value" id="jogDivisorV"></span></div>
+        <input type="range" id="jogDivisor" data-key="jogDivisor" min="1" max="32" step="1">
+        <p class="help">How much platter one tempo-nudge step takes on a playing track. Higher is gentler.</p>
+      </div>
+      <div class="row">
+        <div class="row-head"><label for="platterGapMs">Send rate to djay</label><span class="value" id="platterGapMsV"></span></div>
+        <input type="range" id="platterGapMs" data-key="platterGapMs" min="0" max="20" step="1">
+        <p class="help">How often the platter is passed on. The deck reports about 1,000 times a second, far more than djay's own SC5000 mapping sends, but djay keeps up on this Mac, so leave it at every report. It's here for a slower machine. Steps are combined, not dropped, so the platter still travels exactly as far.</p>
+      </div>
+      <div class="note" id="mappingNote"><b>Trying djay (no-touch) or turning the throw boost off for the first time?</b> Those use platter bindings added to the mapping today. In djay, go to Preferences → Devices → SC5000M Proxy, switch the mapping away and back once so djay reads the new file. The default settings work either way.</div>
+    </section>
+
+    <section>
+      <h2>Motor</h2>
+      <div class="row">
+        <div class="row-head">
+          <label for="motor">Allow motor mode</label>
+          <label class="switch"><input type="checkbox" id="motor" data-key="motor"><span></span></label>
+        </div>
+        <p class="help">The Vinyl button then switches motor mode, and its light shows when it's on: the platter spins at 33⅓ while the deck plays, like a turntable. Hold it to stop the track, scratch while you hold it, and let go to have the motor run it back up. The pitch-bend buttons work as normal throughout.</p>
+      </div>
+    </section>
+  </div>
+
+  <div class="col">
+    <section>
+      <h2>Jog test</h2>
+      <p class="lede">Reads the deck and the proxy directly, so you see what the platter does next to what djay is sent.</p>
+      <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap">
+        <button class="btn primary" id="midiStart">Start jog test</button>
+        <button class="btn" id="countReset">Reset counters</button>
+      </div>
+      <div class="ports" id="ports">Needs Chrome (Web MIDI). The browser will ask to use MIDI devices.</div>
+
+      <div class="meters">
+        <div class="meter"><div class="k">Platter</div><div class="v" id="mRaw">–<small>rpm</small></div></div>
+        <div class="meter"><div class="k">Sent to djay</div><div class="v" id="mOut">–<small>rpm</small></div></div>
+        <div class="meter"><div class="k">Scratch</div><div class="v"><span class="lamp" id="lamp"></span><span id="mScratch">–</span></div></div>
+      </div>
+      <canvas id="chart" aria-label="Platter speed and output to djay over the last six seconds"></canvas>
+      <div class="legend">
+        <span><i style="background:var(--raw)"></i>platter, from the deck</span>
+        <span><i style="background:var(--out)"></i>sent to djay, at this gearing</span>
+        <span><i style="background:var(--scratch); height:10px; vertical-align:-1px"></i>scratch held</span>
+      </div>
+      <div class="counts">
+        <div><span>Turns since reset</span><b id="cTurns">0.00</b></div>
+        <div><span>Scratches</span><b id="cEngage">0</b></div>
+        <div title="Scratch released and re-engaged within 250 ms: the pickup fired while your hand was still on the platter"><span>Drop-outs</span><b id="cDrop">0</b></div>
+        <div title="CC 54 reaching djay: the nudges on a playing track. A stopped track should never add to it"><span>Pitch-bend msgs</span><b id="cBend">0</b></div>
+        <div><span>Deck reports</span><b id="cReports">0</b></div>
+        <div title="Average platter ticks carried per position report while moving"><span>Ticks / report</span><b id="cTpr">–</b></div>
+      </div>
+      <p class="help" style="margin-top:12px">Gearing check: put a mark on the platter, reset, and turn it exactly once. At 1:1 djay's on-screen platter turns once too.</p>
+    </section>
+
+    <section>
+      <h2>Proxy log</h2>
+      <pre class="log" id="log">…</pre>
+    </section>
+  </div>
+
+  <footer>
+    <span>Prefs file <code id="prefsPath">…</code></span>
+    <span class="spacer" style="flex:1"></span>
+    <button class="btn" id="reset">Reset to defaults</button>
+  </footer>
+</main>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const TICKS_PER_REV = 3683;           // measured: PRIME_MIDI_SPEC.md, platter resolution
+let prefs = {}, schema = {};
+
+// ─────────────── preferences ───────────────
+
+const fmt = {
+  scratchScale: (v) => {
+    const r = 2.4 / v;
+    return `${v.toFixed(1)}<small>${Math.abs(r - 1) < 0.02 ? "1:1 vinyl" : r.toFixed(2) + "× vinyl"}</small>`;
+  },
+  scratchIdleMs: (v) => `${v} ms`,
+  scratchEnter: (v) => `${v} report${v === 1 ? "" : "s"}`,
+  jogDivisor: (v) => `1/${v}`,
+  platterGapMs: (v) => (v ? `every ${v} ms<small>≈ ${Math.round(1000 / v)}/s</small>` : `every report<small>≈ 1000/s</small>`),
+};
+const engineHelp = {
+  touch: "The proxy holds the track while the platter moves and lets go after the pickup delay. This is how it has always worked.",
+  notouch: "djay's own handling for platters with no touch sensor, which this one is. djay decides when you have let go, so the pickup delay below does not apply.",
+};
+
+function render() {
+  document.querySelectorAll(".seg[data-key]").forEach((seg) => {
+    seg.querySelectorAll("button").forEach((b) => {
+      const v = isNaN(+b.dataset.v) ? b.dataset.v : +b.dataset.v;
+      b.setAttribute("aria-pressed", String(prefs[seg.dataset.key] === v));
+    });
+  });
+  document.querySelectorAll("input[data-key]").forEach((el) => {
+    const v = prefs[el.dataset.key];
+    if (el.type === "checkbox") el.checked = !!v;
+    else if (document.activeElement !== el) el.value = v;
+    const out = $(el.id + "V");
+    if (out && fmt[el.dataset.key]) out.innerHTML = fmt[el.dataset.key](+el.value);
+  });
+  $("engineHelp").textContent = engineHelp[prefs.scratchEngine] || "";
+  $("idleRow").style.opacity = prefs.scratchEngine === "notouch" ? 0.45 : 1;
+}
+
+let saveTimer, pending = {};
+function setPref(key, value) {
+  prefs[key] = value;
+  pending[key] = value;
+  render();
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(flush, 150);   // a slider drag is one save, not fifty
+}
+async function flush() {
+  const body = pending; pending = {};
+  try {
+    const r = await fetch("/api/prefs", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || r.statusText);
+    prefs = j.prefs; render();
+    showSaved("Saved · applied live");
+  } catch (e) { showSaved("Not saved: " + e.message, true); }
+}
+let savedTimer;
+function showSaved(text, err) {
+  const el = $("saved");
+  el.textContent = text; el.classList.toggle("err", !!err); el.style.opacity = 1;
+  clearTimeout(savedTimer);
+  if (!err) savedTimer = setTimeout(() => (el.style.opacity = 0), 2200);
+}
+
+document.querySelectorAll(".seg[data-key]").forEach((seg) =>
+  seg.addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    setPref(seg.dataset.key, isNaN(+b.dataset.v) ? b.dataset.v : +b.dataset.v);
+  }));
+document.querySelectorAll("input[data-key]").forEach((el) =>
+  el.addEventListener(el.type === "checkbox" ? "change" : "input", () =>
+    setPref(el.dataset.key, el.type === "checkbox" ? el.checked : +el.value)));
+
+$("reset").addEventListener("click", () => {
+  for (const [k, s] of Object.entries(schema)) setPref(k, s.default);
+});
+$("restart").addEventListener("click", async () => {
+  $("restart").disabled = true;
+  try {
+    const r = await fetch("/api/restart", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    const j = await r.json();
+    showSaved(r.ok ? "Proxy restarted" : "Restart failed: " + j.error, !r.ok);
+  } finally { setTimeout(() => ($("restart").disabled = false), 1500); pollStatus(); }
+});
+
+async function loadPrefs() {
+  const j = await (await fetch("/api/prefs")).json();
+  prefs = j.prefs; schema = j.schema;
+  $("prefsPath").textContent = j.path;
+  render();
+}
+
+// ─────────────── status ───────────────
+
+function pill(el, cls, text) {
+  el.querySelector(".dot").className = "dot " + cls;
+  el.lastElementChild.textContent = text;
+}
+async function pollStatus() {
+  try {
+    const s = await (await fetch("/api/status")).json();
+    const a = s.agent;
+    pill($("agentPill"), a.state === "running" ? "ok" : a.installed ? "warn" : "bad",
+      a.state === "running" ? "Proxy running" : a.installed ? `Proxy ${a.state}` : "Proxy service not installed");
+    pill($("deckPill"), s.deck?.connected ? "ok" : "warn",
+      s.deck?.connected ? "Deck connected" : s.deck ? "Waiting for deck (Computer mode?)" : "Deck unknown");
+    const log = $("log"), atEnd = log.scrollTop + log.clientHeight >= log.scrollHeight - 4;
+    log.textContent = s.log.join("\n") || "(empty)";
+    if (atEnd) log.scrollTop = log.scrollHeight;
+  } catch {
+    pill($("agentPill"), "bad", "Prefs server not reachable");
+  }
+}
+
+// ─────────────── jog test (Web MIDI) ───────────────
+// The deck reports position on CC 17 (high 7 bits) and CC 49 (low 7 bits), 3683 ticks a
+// turn. The proxy sends the platter to djay on CC 49 or 80 (absolute, wrapping at 128)
+// or CC 81 or 82 (relative), raises note 40 while it holds a scratch, and sends CC 54
+// only in pitch-bend mode.
+
+const jt = {
+  coarse: 0, lastPos: null, ticks: 0, outSteps: 0, absLast: {},
+  scratch: false, offAt: -1e9, engage: 0, drop: 0, bend: 0, reports: 0,
+  moveTicks: 0, moveReports: 0, turns0: 0,
+  hist: [],            // [t, ticks, outSteps, scratch]
+};
+
+function onDeck(e) {
+  const [st, d1, d2] = e.data;
+  if ((st & 0xf0) !== 0xb0) return;
+  if (d1 === 17) { jt.coarse = d2; return; }
+  if (d1 !== 49) return;
+  const pos = (jt.coarse << 7) | d2;
+  if (jt.lastPos !== null) {
+    let d = pos - jt.lastPos;
+    if (d > 8192) d -= 16384;
+    if (d < -8192) d += 16384;
+    jt.ticks += d;
+    if (d) { jt.moveTicks += Math.abs(d); jt.moveReports++; }
+  }
+  jt.lastPos = pos;
+  jt.reports++;
+}
+
+function onProxy(e) {
+  const [st, d1, d2] = e.data, type = st & 0xf0, ch = st & 0x0f;
+  if ((type === 0x90 || type === 0x80) && d1 === 40) {
+    const on = type === 0x90 && d2 > 0, now = performance.now();
+    if (on && !jt.scratch) { jt.engage++; if (now - jt.offAt < 250) jt.drop++; }
+    if (!on && jt.scratch) jt.offAt = now;
+    jt.scratch = on;
+    return;
+  }
+  if (type !== 0xb0) return;
+  if (d1 === 49 || d1 === 80) {
+    const k = ch * 128 + d1;
+    if (k in jt.absLast) jt.outSteps += ((d2 - jt.absLast[k] + 64) % 128 + 128) % 128 - 64;
+    jt.absLast[k] = d2;
+  } else if (d1 === 81 || d1 === 82) {
+    jt.outSteps += d2 < 64 ? d2 : d2 - 128;
+  } else if (d1 === 54) {
+    jt.bend++;
+  }
+}
+
+let midi = null;
+function bindPorts() {
+  let deck = null, proxy = null;
+  for (const input of midi.inputs.values()) {
+    input.onmidimessage = null;
+    if (/proxy/i.test(input.name)) proxy = proxy || input;
+    else if (/sc5000/i.test(input.name)) deck = deck || input;
+  }
+  if (deck) deck.onmidimessage = onDeck;
+  if (proxy) proxy.onmidimessage = onProxy;
+  $("ports").textContent = `Deck: ${deck ? deck.name : "not found (on, in Computer mode?)"} · Proxy: ${proxy ? proxy.name : "not found"}`;
+}
+$("midiStart").addEventListener("click", async () => {
+  if (!navigator.requestMIDIAccess) {
+    $("ports").textContent = "This browser has no Web MIDI. Open this page in Chrome to run the jog test; the settings work in any browser.";
+    return;
+  }
+  try {
+    midi = await navigator.requestMIDIAccess();
+    midi.onstatechange = bindPorts;
+    bindPorts();
+    $("midiStart").textContent = "Jog test running";
+    $("midiStart").disabled = true;
+  } catch (err) {
+    $("ports").textContent = "MIDI access was refused: " + err.message;
+  }
+});
+$("countReset").addEventListener("click", () => {
+  Object.assign(jt, { engage: 0, drop: 0, bend: 0, reports: 0, moveTicks: 0, moveReports: 0, turns0: jt.ticks });
+});
+
+// Speeds come from a window, never one message: each report carries 1-4 whole ticks
+// over 1-4 ms, so a per-message rate swings by ±1000 ticks/s on quantisation alone.
+const WINDOW = 80, SPAN = 6000;
+function rates(now) {
+  const h = jt.hist;
+  let i = h.length - 1;
+  while (i > 0 && now - h[i - 1][0] <= WINDOW) i--;
+  const a = h[Math.max(0, i - 1)], b = h[h.length - 1];
+  const dt = (b[0] - a[0]) / 1000;
+  if (!a || dt <= 0) return [0, 0];
+  const rpm = (ticks) => (ticks / dt) / TICKS_PER_REV * 60;
+  return [rpm(b[1] - a[1]), rpm((b[2] - a[2]) * (prefs.scratchScale || 2.4))];
+}
+
+setInterval(() => {
+  const now = performance.now();
+  jt.hist.push([now, jt.ticks, jt.outSteps, jt.scratch]);
+  while (jt.hist.length && now - jt.hist[0][0] > SPAN + 500) jt.hist.shift();
+  if (!midi) return;
+  const [r, o] = rates(now);
+  jt.hist[jt.hist.length - 1].push(r, o);
+  $("mRaw").innerHTML = `${r >= 0 ? "+" : ""}${r.toFixed(1)}<small>rpm</small>`;
+  $("mOut").innerHTML = `${o >= 0 ? "+" : ""}${o.toFixed(1)}<small>rpm</small>`;
+  $("lamp").classList.toggle("on", jt.scratch);
+  $("mScratch").textContent = prefs.scratchEngine === "notouch" ? "djay" : jt.scratch ? "held" : "free";
+  $("cTurns").textContent = ((jt.ticks - jt.turns0) / TICKS_PER_REV).toFixed(2);
+  $("cEngage").textContent = jt.engage;
+  $("cDrop").textContent = jt.drop;
+  $("cDrop").classList.toggle("bad", jt.drop > 0);
+  $("cBend").textContent = jt.bend;
+  $("cReports").textContent = jt.reports;
+  $("cTpr").textContent = jt.moveReports ? (jt.moveTicks / jt.moveReports).toFixed(2) : "–";
+}, 30);
+
+const cv = $("chart"), cx = cv.getContext("2d");
+let yMax = 45;
+function draw() {
+  const dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+  if (cv.width !== w * dpr || cv.height !== h * dpr) { cv.width = w * dpr; cv.height = h * dpr; }
+  cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  cx.clearRect(0, 0, w, h);
+  const css = getComputedStyle(document.documentElement), col = (n) => css.getPropertyValue(n).trim();
+  const now = performance.now(), pts = jt.hist.filter((p) => p.length > 4);
+  const peak = pts.reduce((m, p) => Math.max(m, Math.abs(p[4]), Math.abs(p[5])), 0);
+  yMax += (Math.max(45, peak * 1.15) - yMax) * 0.08;
+  const X = (t) => w - ((now - t) / SPAN) * w, Y = (v) => h / 2 - (v / yMax) * (h / 2 - 8);
+
+  cx.fillStyle = col("--scratch");
+  for (let i = 1; i < pts.length; i++) if (pts[i][3]) cx.fillRect(X(pts[i - 1][0]), 0, X(pts[i][0]) - X(pts[i - 1][0]) + 0.5, h);
+
+  cx.font = "11px -apple-system, sans-serif";
+  for (const v of [0, 100 / 3, -100 / 3]) {
+    if (Math.abs(v) > yMax) continue;
+    cx.strokeStyle = col("--line"); cx.lineWidth = 1;
+    cx.setLineDash(v ? [3, 4] : []);
+    cx.beginPath(); cx.moveTo(0, Y(v)); cx.lineTo(w, Y(v)); cx.stroke();
+    cx.setLineDash([]);
+    cx.fillStyle = col("--faint");
+    cx.fillText(v ? `${v > 0 ? "+" : "−"}33⅓` : "0 rpm", 6, Y(v) - 4);
+  }
+  for (const [idx, c, wdt] of [[4, "--raw", 2], [5, "--out", 1.5]]) {
+    cx.strokeStyle = col(c); cx.lineWidth = wdt; cx.beginPath();
+    pts.forEach((p, i) => (i ? cx.lineTo(X(p[0]), Y(p[idx])) : cx.moveTo(X(p[0]), Y(p[idx]))));
+    cx.stroke();
+  }
+  requestAnimationFrame(draw);
+}
+
+loadPrefs().catch(() => showSaved("Could not load prefs", true));
+pollStatus();
+setInterval(pollStatus, 2000);
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>

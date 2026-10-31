@@ -18,14 +18,47 @@ four, republishing the deck as a clean virtual MIDI port.
 
 ```sh
 ./deploy.sh              # build the mapping + proxy, copy the mapping to djay
-./install_agent.sh       # start the proxy at login and keep it running
+./install_agent.sh       # start the proxy and its prefs page at login, keep them running
 ```
 
 Then in djay, once: **Preferences → Devices → SC5000M Proxy**, select the mapping.
 djay remembers that choice across restarts.
 
-For four decks it is `./deploy.sh 4` and `./install_agent.sh 4` — the mapping and the
-proxy have to agree on the deck count.
+Everything else is on the prefs page, **http://localhost:8750**.
+
+## Preferences
+
+The page edits one file, `~/Library/Application Support/SC5000M Proxy/prefs.json`,
+and the proxy re-reads it within half a second of a change. Nothing restarts and
+nothing needs re-selecting in djay, so the platter can be retuned while you scratch.
+
+| Pref | Default | |
+|---|---|---|
+| Decks | **2** | how many decks LAYER cycles; 3 and 4 are there when you want them |
+| Touching a playing track | nudges | djay's pitch bend; or scratches; or does nothing |
+| Who decides you let go | proxy | the proxy's touch note, or djay's own no-touch handling |
+| Let go when the platter coasts | on | a pushed or thrown platter hands the track back to djay |
+| Throw boost | on | djay's acceleration curve on the platter |
+| Gearing | 2.4 | platter ticks per step; 2.4 is 1:1 vinyl |
+| Pickup delay | 50 ms | stillness before the track plays on (proxy touch only) |
+| Engage after | 4 | reports in 100 ms before a scratch starts |
+| Pitch-bend gearing | 1/8 | platter ticks per tempo-nudge step |
+| Send rate to djay | every report | at most one platter message per N ms. Not needed here: djay keeps up at full rate under 60% CPU |
+| Motor | off | lets the Vinyl button switch motor mode |
+
+The mapping always binds all four decks, so the deck count is purely the proxy's.
+Flags on the `midiproxy` command line still win over the file, applied again after
+every reload, so an ad-hoc run from the terminal behaves the way it was asked to.
+
+The page also has a **jog test** (Chrome only; it needs Web MIDI). It reads the deck
+and the proxy's output side by side and charts platter speed against what djay is
+sent. It counts scratches, drop-outs (a release and re-engage within 250 ms, meaning
+the pickup fired under your hand) and pitch-bend messages, which should stay at zero
+in scratch mode.
+
+`prefs_server.py` serves it on 127.0.0.1 only. A write has to come from the page
+itself: a JSON body with a localhost Host header, which another site open in the
+same browser cannot send.
 
 ## From a cold boot
 
@@ -62,15 +95,14 @@ launchctl print gui/$UID/com.sc5000.midiproxy     # is the agent healthy
 > files claiming the endpoint name `SC5000M Proxy` is exactly the ambiguity
 > `deploy.sh` otherwise protects you from, so do not leave it lying around.
 >
-> Proxy-side settings need none of this. `--scratch-scale`, `--scratch-idle`,
-> `--motor` and `--layers` take effect on restart; only the mapping file needs a
-> re-select.
+> Proxy-side settings need none of this. Everything on the prefs page applies live;
+> only the mapping file needs a re-select.
 
 ## What the proxy does
 
 **Layers → decks.** LAYER is consumed by the proxy and never reaches djay. It cycles
 a counter and rewrites the MIDI channel, so deck N goes out on channel N and the host
-sees independent decks. Up to four (`--layers`). The platter ring is tinted per deck
+sees independent decks. Two by default, up to four (the Decks pref). The platter ring is tinted per deck
 so the wheel says which one you are holding. Notes held across a switch get their
 note-off on the layer they were pressed in.
 
@@ -97,7 +129,7 @@ goes still for 1 ms median, 10 ms at the 99th percentile, so the default 50 ms
 
 | | |
 |---|---|
-| `--scratch-scale 2.4` | platter ticks folded into one CC step (proxy) |
+| Gearing `2.4` | platter ticks folded into one CC step (proxy pref, `--scratch-scale`) |
 | `rotarySensitivity 1.0` | djay's multiplier on each step (mapping) |
 
 `rotarySensitivity` **multiplies** — higher is *more* sensitive. Read it off djay's own
@@ -108,14 +140,79 @@ per-tick counter at 0.42, and 52/0.42 is the 128x between them.
 Keep sensitivity at or above **1.0**. djay rounds each step to a whole internal unit,
 so a step worth 0.42 rounds away two times in three and then lurches — it feels like
 coarse, sticky grain, and no amount of tuning fixes it because the problem is the
-rounding, not the gearing. Gear down with `--scratch-scale` instead: 2.4 ticks per
-step against sensitivity 1.0 is 1:1 vinyl with every step landing on djay's grid.
+rounding, not the gearing. Gear down with the proxy instead: 2.4 ticks per step
+against sensitivity 1.0 is 1:1 vinyl with every step landing on djay's grid.
+
+**One platter, four bindings.** The mapping carries the platter four ways, and the
+proxy sends on exactly one of them, chosen by two prefs. That makes each feel a live
+switch rather than a mapping rebuild and a re-select in djay:
+
+| CC | djay target | Release decided by | Acceleration |
+|---|---|---|---|
+| 49 | `scratchingMove` | proxy (note 40) | 150 |
+| 80 | `scratchingMove` | proxy (note 40) | off |
+| 81 | `scratchingNoTouchMove` | djay | 150 |
+| 82 | `scratchingNoTouchMove` | djay | off |
+
+`scratchingNoTouchMove` is the target djay's own mappings use for platters with no
+touch sensor, which this one is (Hercules, Numark DJ2GO and others ship with it). CC 49
+is the original and the default. SHIFT always goes out on CC 49, where `jogSeekMove`
+sits. Each absolute CC keeps its own running count per deck, so switching between
+them never hands djay a stale value to seek from.
+
+**A playing track nudges, a paused one scratches.** Touching a playing track bends its
+tempo (djay's `pitchBendMove`) instead of grabbing it, the way the edge of a CDJ jog
+works. A paused track scratches as before, whatever the Vinyl button says. Pitch bend
+has nothing to act on with the deck stopped: in djay's jog pitch-bend mode, the platter
+used to send a stopped track thousands of pitch-bend steps and move it not at all. That
+mode is now pinned off. The Vinyl button belongs to the motor, and if djay reports a
+deck in pitch-bend mode, the proxy presses djay's toggle to turn it back, because in
+that mode djay ignores `scratchingMove` too. SHIFT + platter always seeks. The "Touching a playing track" pref can switch
+a playing deck back to scratching, or to ignoring the platter. Each change of play
+state is logged as `deck N playing` / `deck N paused`.
+
+The proxy learns play state from djay's `isPlaying`, which the mapping binds as an
+output on note 120 for each deck channel: 127 while playing, 0 when stopped, the same
+binding the RANE Twelve MKII and Numark Mixdeck Quad mappings ship with. The play LED
+is only the fallback, for a djay still holding an older mapping. It signals state by
+steadiness (solid for playing, a 0.5 s blink for paused), so it needs 0.8 s to settle,
+and on this deck djay once held it lit for over a second straight after a pause. A
+paused deck then read as playing, and a scratch turned into a nudge under the hand.
+
+**A coasting platter lets go.** With the motor off, the platter spins free on its
+bearing, so a push, a brush or a throw leaves it coasting for seconds. The deck
+reports no touch, so all of that used to read as a hand. One brush on a playing track
+held it for 6.6 s and dragged it backwards at the coasting speed. A throw ran the track
+on for 3.6 s and wound it down to a stop, and the platter rocking as it settled grabbed
+it again.
+
+Friction slows a free platter along one curve: it loses rate ÷ 1.11 s + 263 ticks/s²
+every second, measured from a 150 rpm throw down to a crawl. A hand doesn't follow that
+curve for long. Once the platter has tracked it for 0.10 s, the proxy releases the
+scratch and djay plays on. The coast is then ignored until something drives the platter
+harder than friction explains: a push, or a hand braking it. Replaying a real session
+through the proxy, every coast was caught 0.18–0.26 s after the hand left. A run of
+ordinary scratching produced no false calls. Shorter holds or looser tolerances started
+catching scratch strokes. Turn it off with the "Let go when the platter coasts" pref.
+
+What no setting can fix: **a hand resting still on the platter is invisible.** With no
+touch sensor and no movement, there is nothing to read, so holding the platter does
+not stop a playing track. Only motor mode could tell, because the hand would stop a
+platter the motor is driving.
+
+**Only the live half of the platter reaches djay.** The deck reports every movement
+twice: as a position (CC 17/49) and as a per-report delta (CC 54). Scratch mode uses
+the position and pitch-bend mode uses the delta, and the other one is now dropped.
+Until 2026-10-31 it was not. The inactive half fell through to the pass-through, so
+every scratch also sent djay a stream of `pitchBendMove`. Measured with a scripted
+platter, a 1000-tick move sent 1,838 pitch-bend messages alongside the scratch, and
+brushes too light to start a scratch still bent a playing track.
 
 **Turn slip on to scratch.** djay's slip mode keeps the track running underneath and
 snaps back on release. Without it, scratching drags the playhead and the track has to
 pick itself back up. It is the Slip button (note 23) — no menu needed.
 
-**Motor** (`--motor`, off by default; SHIFT+Vinyl toggles it). The motor turns the
+**Motor** (`--motor`, off by default; Vinyl toggles it). The motor turns the
 platter at 33 1/3 RPM to show a deck is playing, driven from djay's play LED — which
 signals state by *steadiness*, not level: solid means playing, a 0.5 s blink means
 paused, so `--motor-debounce` must outlast one blink half-period.
@@ -125,16 +222,31 @@ scratching outright, so it has to be asked for. Spin-down ends when the platter 
 reporting rotation rather than after a fixed wait, so the platter frees up as soon as
 it has actually stopped.
 
-While it spins, **scratching is off**. The deck reports no touch, so the proxy cannot
-tell your hand from the motor, and ungated a driven platter seeks through the track at
-~2000 ticks/second. Motor and scratching are alternatives, not companions.
+**Motor mode is a turntable: hold to stop, let go to run.** A hand resting on a free
+platter is invisible to this deck, but a hand stopping a platter the motor is driving
+is the one thing it can report. So while the motor spins, the proxy compares the
+platter with the motor's own speed, measured at 2010 ticks/s (32.7 rpm, 33⅓ to the
+deck's accuracy) and steady to ±50 ticks/s.
+- **Hand on:** more than 15% off that speed for 15 ms. The proxy raises the touch note
+  and the track follows the platter one to one: still under a still hand, scratched by
+  a moving one.
+- **Let go:** the motor has the platter back at speed in 0.15–0.2 s. Within 8% for
+  80 ms hands the track back to djay at the speed it was already playing.
+- **Spin-up:** the first 0.4 s after the motor starts is ignored, so pressing play
+  doesn't grab the track.
 
-`--motor-touch` is an experimental attempt to have both, by learning the motor's rate
-and forwarding only the residual. It is **off, and best left off**. It holds up while
-nothing is touching the platter and fails at every edge: a hand sweeping through the
-motor's own speed is indistinguishable from no hand, a throw produces residuals large
-enough that djay misreads the 7-bit wrap and plays it backwards, and spin-down leaves
-a stale rate over a platter that is no longer driven.
+Against a recorded session this caught each hold 60–90 ms after the hand landed. It let
+go about 0.2 s after release and never fired on the motor alone. Held, the track plays
+at the platter's 33⅓, not at djay's tempo, so a deck pitched up or down changes speed
+slightly at the hand-off. Holds go out on CC 80, without acceleration, which would run
+the track faster than the platter turns. Pitch bend stays on the PITCH BEND −/+
+buttons while the motor runs. `--no-vinyl-hold` restores the older motor mode, which
+ignores a spinning platter.
+
+This replaces `--motor-touch`, which tried to subtract a learned motor rate and forward
+only the residual. It failed where the residual was ambiguous. Following the whole
+platter has no such edge: a hand moving at exactly the motor's speed plays the track
+at normal speed either way.
 
 ## The controls that are not obvious
 
@@ -142,8 +254,7 @@ Most of the panel does what it says. These do not:
 
 | Control | Does |
 |---|---|
-| **Vinyl** (note 19) | platter mode: **lit = scratch**, dark = pitch bend |
-| **SHIFT + Vinyl** | motor mode ↔ manual (only with `--motor`) |
+| **Vinyl** (note 19) | **motor mode** ↔ manual, with or without SHIFT (needs the Motor pref on). **Lit = motor mode**: hold to stop, let go to run |
 | **Slip** (note 23) | djay slip mode — **turn this on to scratch** |
 | **PITCH BEND −/+** | tempo nudge, in any mode |
 | **SHIFT + PITCH BEND −/+** | tempo *range* − / + |
@@ -165,12 +276,13 @@ an earlier build scrub through tracks instead of scratching.
 |---|---|
 | `midiproxy.swift` | the proxy. `--help` documents every option |
 | `build_mapping.py` | generates the djay mapping from one control table |
-| `deploy.sh` | build + copy + tell you to re-select in djay |
+| `deploy.sh` | build + copy + restart the proxy + tell you to re-select in djay |
+| `prefs_server.py` | the prefs page on http://localhost:8750, serving `web/index.html` |
 | `midimon.swift` | live MIDI monitor; `-m <mapping>` labels each control with the djay target it hits |
 | `ledtest.swift` | walks LEDs and colour indices — use it to pick ring/pad colours |
 | `motorhunt.swift` | the CC sweep that found the platter motor |
 | `screenprobe.swift` | reads the 7" screen's USB endpoints (see the spec) |
-| `install_agent.sh` | LaunchAgent that keeps the proxy running across logins and deck power cycles |
+| `install_agent.sh` | LaunchAgents that keep the proxy and the prefs page running across logins and deck power cycles |
 
 ## Mapping targets are verified at build time
 

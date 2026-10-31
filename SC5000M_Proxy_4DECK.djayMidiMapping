@@ -804,6 +804,50 @@
 		</dict>
 		<dict>
 			<key>controlType</key>
+			<string>rotary-absolute</string>
+			<key>keyPath</key>
+			<string>turntable1.scratchingMove</string>
+			<key>midiChannel</key>
+			<integer>0</integer>
+			<key>midiData</key>
+			<integer>80</integer>
+			<key>midiMessageType</key>
+			<integer>3</integer>
+			<key>rotarySensitivity</key>
+			<real>1.0</real>
+		</dict>
+		<dict>
+			<key>controlType</key>
+			<string>rotary</string>
+			<key>keyPath</key>
+			<string>turntable1.scratchingNoTouchMove</string>
+			<key>midiChannel</key>
+			<integer>0</integer>
+			<key>midiData</key>
+			<integer>81</integer>
+			<key>midiMessageType</key>
+			<integer>3</integer>
+			<key>rotaryAcceleration</key>
+			<integer>150</integer>
+			<key>rotarySensitivity</key>
+			<real>1.0</real>
+		</dict>
+		<dict>
+			<key>controlType</key>
+			<string>rotary</string>
+			<key>keyPath</key>
+			<string>turntable1.scratchingNoTouchMove</string>
+			<key>midiChannel</key>
+			<integer>0</integer>
+			<key>midiData</key>
+			<integer>82</integer>
+			<key>midiMessageType</key>
+			<integer>3</integer>
+			<key>rotarySensitivity</key>
+			<real>1.0</real>
+		</dict>
+		<dict>
+			<key>controlType</key>
 			<string>rotary</string>
 			<key>keyPath</key>
 			<string>turntable1.pitchBendMove</string>
@@ -1737,6 +1781,50 @@
 			<integer>3</integer>
 			<key>modifier</key>
 			<true/>
+			<key>rotarySensitivity</key>
+			<real>1.0</real>
+		</dict>
+		<dict>
+			<key>controlType</key>
+			<string>rotary-absolute</string>
+			<key>keyPath</key>
+			<string>turntable2.scratchingMove</string>
+			<key>midiChannel</key>
+			<integer>1</integer>
+			<key>midiData</key>
+			<integer>80</integer>
+			<key>midiMessageType</key>
+			<integer>3</integer>
+			<key>rotarySensitivity</key>
+			<real>1.0</real>
+		</dict>
+		<dict>
+			<key>controlType</key>
+			<string>rotary</string>
+			<key>keyPath</key>
+			<string>turntable2.scratchingNoTouchMove</string>
+			<key>midiChannel</key>
+			<integer>1</integer>
+			<key>midiData</key>
+			<integer>81</integer>
+			<key>midiMessageType</key>
+			<integer>3</integer>
+			<key>rotaryAcceleration</key>
+			<integer>150</integer>
+			<key>rotarySensitivity</key>
+			<real>1.0</real>
+		</dict>
+		<dict>
+			<key>controlType</key>
+			<string>rotary</string>
+			<key>keyPath</key>
+			<string>turntable2.scratchingNoTouchMove</string>
+			<key>midiChannel</key>
+			<integer>1</integer>
+			<key>midiData</key>
+			<integer>82</integer>
+			<key>midiMessageType</key>
+			<integer>3</integer>
 			<key>rotarySensitivity</key>
 			<real>1.0</real>
 		</dict>
@@ -2680,6 +2768,50 @@
 		</dict>
 		<dict>
 			<key>controlType</key>
+			<string>rotary-absolute</string>
+			<key>keyPath</key>
+			<string>turntable3.scratchingMove</string>
+			<key>midiChannel</key>
+			<integer>2</integer>
+			<key>midiData</key>
+			<integer>80</integer>
+			<key>midiMessageType</key>
+			<integer>3</integer>
+			<key>rotarySensitivity</key>
+			<real>1.0</real>
+		</dict>
+		<dict>
+			<key>controlType</key>
+			<string>rotary</string>
+			<key>keyPath</key>
+			<string>turntable3.scratchingNoTouchMove</string>
+			<key>midiChannel</key>
+			<integer>2</integer>
+			<key>midiData</key>
+			<integer>81</integer>
+			<key>midiMessageType</key>
+			<integer>3</integer>
+			<key>rotaryAcceleration</key>
+			<integer>150</integer>
+			<key>rotarySensitivity</key>
+			<real>1.0</real>
+		</dict>
+		<dict>
+			<key>controlType</key>
+			<string>rotary</string>
+			<key>keyPath</key>
+			<string>turntable3.scratchingNoTouchMove</string>
+			<key>midiChannel</key>
+			<integer>2</integer>
+			<key>midiData</key>
+			<integer>82</integer>
+			<key>midiMessageType</key>
+			<integer>3</integer>
+			<key>rotarySensitivity</key>
+			<real>1.0</real>
+		</dict>
+		<dict>
+			<key>controlType</key>
 			<string>rotary</string>
 			<key>keyPath</key>
 			<string>turntable3.pitchBendMove</string>
@@ -3618,6 +3750,50 @@
 		</dict>
 		<dict>
 			<key>controlType</key>
+			<string>rotary-absolute</string>
+			<key>keyPath</key>
+			<string>turntable4.scratchingMove</string>
+			<key>midiChannel</key>
+			<integer>3</integer>
+			<key>midiData</key>
+			<integer>80</integer>
+			<key>midiMessageType</key>
+			<integer>3</integer>
+			<key>rotarySensitivity</key>
+			<real>1.0</real>
+		</dict>
+		<dict>
+			<key>controlType</key>
+			<string>rotary</string>
+			<key>keyPath</key>
+			<string>turntable4.scratchingNoTouchMove</string>
+			<key>midiChannel</key>
+			<integer>3</integer>
+			<key>midiData</key>
+			<integer>81</integer>
+			<key>midiMessageType</key>
+			<integer>3</integer>
+			<key>rotaryAcceleration</key>
+			<integer>150</integer>
+			<key>rotarySensitivity</key>
+			<real>1.0</real>
+		</dict>
+		<dict>
+			<key>controlType</key>
+			<string>rotary</string>
+			<key>keyPath</key>
+			<string>turntable4.scratchingNoTouchMove</string>
+			<key>midiChannel</key>
+			<integer>3</integer>
+			<key>midiData</key>
+			<integer>82</integer>
+			<key>midiMessageType</key>
+			<integer>3</integer>
+			<key>rotarySensitivity</key>
+			<real>1.0</real>
+		</dict>
+		<dict>
+			<key>controlType</key>
 			<string>rotary</string>
 			<key>keyPath</key>
 			<string>turntable4.pitchBendMove</string>
@@ -3763,6 +3939,49 @@
 	<string>sc5000_midi build_mapping.py</string>
 	<key>endpointName</key>
 	<string>SC5000M Proxy</string>
+	<key>outputs</key>
+	<array>
+		<dict>
+			<key>keyPath</key>
+			<string>turntable1.isPlaying</string>
+			<key>midiChannel</key>
+			<integer>0</integer>
+			<key>midiData</key>
+			<integer>120</integer>
+			<key>midiMessageType</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>keyPath</key>
+			<string>turntable2.isPlaying</string>
+			<key>midiChannel</key>
+			<integer>1</integer>
+			<key>midiData</key>
+			<integer>120</integer>
+			<key>midiMessageType</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>keyPath</key>
+			<string>turntable3.isPlaying</string>
+			<key>midiChannel</key>
+			<integer>2</integer>
+			<key>midiData</key>
+			<integer>120</integer>
+			<key>midiMessageType</key>
+			<integer>1</integer>
+		</dict>
+		<dict>
+			<key>keyPath</key>
+			<string>turntable4.isPlaying</string>
+			<key>midiChannel</key>
+			<integer>3</integer>
+			<key>midiData</key>
+			<integer>120</integer>
+			<key>midiMessageType</key>
+			<integer>1</integer>
+		</dict>
+	</array>
 	<key>schemeVersion</key>
 	<integer>1</integer>
 	<key>version</key>
