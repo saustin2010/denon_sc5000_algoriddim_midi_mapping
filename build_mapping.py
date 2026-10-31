@@ -9,7 +9,9 @@ the whole table against the installed djay and fails loudly if a target has gone
 Layout: midiproxy latches LAYER and rewrites the channel, so deck N arrives on MIDI
 channel N and one physical deck can drive up to four. Library and application controls
 are global but must be repeated on every channel, since the proxy re-channels
-everything. Keep --layers in step with midiproxy's.
+everything. --layers must cover the most decks the proxy will ever cycle: deploy.sh
+builds all four, so how many LAYER actually visits is the proxy's "decks" pref, which
+changes live. A mapping that binds a deck the proxy never sends to costs nothing.
 """
 import argparse, glob, os, plistlib, re, sys
 from pathlib import Path
@@ -87,6 +89,16 @@ DECK_CCS = [
     (8,  "speed",                  None,              None, None, False, V),
     (49, "scratchingMove",         "rotary-absolute", "SENS", "ACCEL", False, V),
     (49, "jogSeekMove",            "rotary-absolute", "SENS", None,    True,  V),
+    # The same platter three more ways, so a feel can be tried from the prefs page
+    # instead of by rebuilding this and re-selecting it in djay. midiproxy's
+    # scratchEngine and scratchAccel prefs pick which CC it sends on; only one ever
+    # moves, so none of these double-drive. 80 is 49 without the acceleration curve.
+    # 81 and 82 are scratchingNoTouchMove, the target djay's own mappings use for
+    # platters with no touch sensor -- djay decides when the hand has let go, rather
+    # than the proxy's note 40. Relative, as every shipped mapping that uses it is.
+    (80, "scratchingMove",         "rotary-absolute", "SENS", None,    False, V),
+    (81, "scratchingNoTouchMove",  "rotary",          "SENS", "ACCEL", False, V),
+    (82, "scratchingNoTouchMove",  "rotary",          "SENS", None,    False, V),
     # The platter as a tempo nudge instead of a scratch. djay's jogPitchBendModeToggle
     # (note 19) picks which of these is live, so both can sit on the platter at once --
     # without this one that toggle just lands the deck in a mode where nothing moves.
@@ -114,6 +126,14 @@ GLOBAL_NOTES = [
 GLOBAL_CCS = [(6, "musicLibrary.libraryRotary", "rotary", V)]
 
 SHIFT_NOTE = 26
+
+# djay's own word on whether each deck is playing, as a plain level on a note the deck
+# does not have: 127 while it plays, 0 when it stops. midiproxy routes the platter by it
+# -- a playing track nudges, a paused one scratches. The play LED cannot stand in for
+# it: djay blinks that to mean paused, and has been seen holding it lit for over a
+# second straight after a pause. Output only; the RANE Twelve MKII and Numark Mixdeck
+# Quad mappings bind isPlaying the same way. Must match playStateNote in midiproxy.swift.
+PLAY_STATE_NOTE = 120
 
 DJAY_MAPPINGS = "/Applications/djay Pro.app/Contents/Resources/MIDI Mappings"
 
@@ -210,6 +230,9 @@ def main():
             controls.append(ctl(ch, 3, cc, tgt, ctype=ctype))
         controls.append(ctl(ch, 1, SHIFT_NOTE, "application.modifier"))
 
+    outputs = [{"keyPath": f"turntable{ch + 1}.isPlaying", "midiChannel": ch,
+                "midiData": PLAY_STATE_NOTE, "midiMessageType": 1} for ch in range(args.layers)]
+
     plist = {
         "endpointName": args.name,
         "schemeVersion": 1,
@@ -217,8 +240,9 @@ def main():
         "version": 0,
         "editor": "sc5000_midi build_mapping.py",
         "controls": controls,
+        "outputs": outputs,
     }
-    dead = check(controls)
+    dead = check(controls + outputs)
     if dead:
         print("REFUSING TO WRITE — djay has no such targets; these buttons would do nothing:")
         for mtype, data, kp in dead:
@@ -232,6 +256,7 @@ def main():
     print(f"controls  {len(controls)}  ({args.layers} decks x {per_deck})")
     print(f"  LED feedback on {sum(1 for c in controls if 'output' in c)} controls")
     print(f"  SHIFT layer on  {sum(1 for c in controls if c.get('modifier'))} controls")
+    print(f"  play state      isPlaying -> note {PLAY_STATE_NOTE}, one per deck channel")
     print("  pad banks       " + ", ".join(f"{n} @ {b}-{b + 7}" for b, n, _, _ in PAD_BANKS))
     print(f"  platter         CC 49 sensitivity {args.sensitivity}"
           + (f", acceleration {args.acceleration}" if args.acceleration else ", no acceleration"))

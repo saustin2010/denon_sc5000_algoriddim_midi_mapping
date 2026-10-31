@@ -54,16 +54,15 @@ var layerCount = 2          // decks the LAYER button cycles through (2-4)
 var layerColours = [4, 34, 24, 49]
 var motor = false           // opt-in: djay's feedback echoes the button, not play state
 var playNote = 1            // djay lights note 1 to signal play state
+var playStateNote = 120     // djay's isPlaying, bound by build_mapping.py PLAY_STATE_NOTE
 var motorStart = 65
 var motorStop  = 66
 var jogGate = true
 var waitForDeck = false     // sit and wait for the deck rather than exiting
-var vinylNote = 19          // STOP MOTOR button (spec calls it "Vinyl")
+var vinylNote = 19          // Vinyl: the motor button, and its lamp shows motor mode
 var shiftNote = 26          // SHIFT. Watched, never consumed: djay binds it as
                             // application.modifier and needs every press.
 var shiftHeld = false
-var vinylConsumed = false   // did WE take the current Vinyl press? Decides who gets
-                            // the note-off, so releasing SHIFT first cannot strand it.
 // Pad modes. djay re-points its own pads with an internal "modifier2" that only its
 // compiled per-device classes can set — a mapping file cannot touch it, so HOT CUE /
 // ROLL / SLICER / LOOP would all leave the pads on hot cues. Instead the proxy holds
@@ -92,12 +91,80 @@ var padLitColour   = [45, 45, 45, 45]   // active: white, the one index that rea
 // known indices allow — orange and purple are not found yet, so 2 and 8 stand in.
 var padCueColours = [16, 24, 1, 40, 8, 17, 9, 25]
 let jogCCs: Set<Int> = [17, 49, 54, 55]
+var ledFull = true          // buttons at full brightness rather than djay's level
+// Pads 32-39 and the platter ring are RGB: velocity is a colour index, not brightness.
+// djay sends its own level, so substitute the current bank's colour.
+var padColour = true
+// Hold to stop, like vinyl. The deck has no touch sensor, so a hand resting on a free
+// platter is invisible — but with the motor turning it at 33⅓, a hand that stops it is
+// the one thing the deck CAN report. Motor mode therefore holds the track while the
+// platter is off the motor's speed and hands it back once the motor has it at speed
+// again, so holding, scratching and letting go all work on a spinning platter. Off
+// gives the older motor mode, where a spinning platter is ignored entirely.
+var vinylHold = true
+// These were declared further down until they were moved here, after the option parser
+// had already run — so the declaration reset them and --no-led-boost and
+// --no-pad-colour were silently ignored. Options live up here.
 
-var argv = Array(CommandLine.arguments.dropFirst())
-var ai = 0
-while ai < argv.count {
+// Who decides the hand has let go. "touch": the proxy, by raising note 40 while the
+// platter moves and dropping it after scratchIdle of stillness — djay's scratchingMove
+// under scratchingMode. "notouch": djay, through scratchingNoTouchMove, the target its
+// own mappings use for platters with no touch sensor, which this one is.
+var scratchEngine = "touch"
+var scratchAccel = true     // djay's fast-move curve on the platter (rotaryAcceleration)
+var coastRelease = true     // let go when the platter coasts on its own (see coastTau)
+// What the platter does to a deck that is playing. "nudge": djay's pitch bend, the
+// way the edge of a CDJ jog works — touching a playing track never grabs it. "scratch":
+// grab it, as a paused track always is. "ignore": nothing. SHIFT still seeks either way.
+var whilePlaying = "nudge"
+// Minimum gap between platter messages to djay, in ms; 0 sends on every report. The
+// deck reports ~1000 times a second and the proxy passes that straight on, about 20x
+// what djay's own SC5000 mapping sees from the same platter. Suspected when fast moves
+// made djay lag, and cleared: at the full ~600 msg/s djay stayed under 60% CPU and kept
+// up, and the lag was djay's jog pitch-bend mode (see pinScratchMode). Kept as a knob
+// for a slower machine; a gap coalesces the steps, which the counter carries losslessly.
+var platterGapMs = 0.0
+
+// The settings prefs_server.py edits. Read at start and again whenever the file
+// changes, so the platter can be retuned while you scratch on it — no restart, and
+// nothing to re-select in djay. Flags on the command line still win: they are applied
+// again after every reload, so an ad-hoc run behaves the way it was asked to.
+var prefsPath = NSHomeDirectory() + "/Library/Application Support/SC5000M Proxy/prefs.json"
+
+let argv = Array(CommandLine.arguments.dropFirst())
+if let i = argv.firstIndex(of: "--prefs"), i + 1 < argv.count { prefsPath = argv[i + 1] }
+
+/// Applies the prefs file over whatever is set now. False if there is no usable file.
+@discardableResult
+func loadPrefs() -> Bool {
+    guard let data = FileManager.default.contents(atPath: prefsPath),
+          let p = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return false }
+    if let v = p["decks"] as? Int             { layerCount = min(4, max(2, v)) }
+    if let v = p["scratchEngine"] as? String, ["touch", "notouch"].contains(v) { scratchEngine = v }
+    if let v = p["scratchAccel"] as? Bool     { scratchAccel = v }
+    if let v = p["coastRelease"] as? Bool     { coastRelease = v }
+    if let v = p["platterGapMs"] as? Double   { platterGapMs = max(0, v) }
+    if let v = p["whilePlaying"] as? String, ["nudge", "scratch", "ignore"].contains(v) { whilePlaying = v }
+    if let v = p["scratchScale"] as? Double   { scratchScale = max(0.1, v) }
+    if let v = p["scratchIdleMs"] as? Double  { scratchIdle = max(1, v) / 1000 }
+    if let v = p["scratchEnter"] as? Int      { scratchEnter = max(1, v) }
+    if let v = p["jogDivisor"] as? Int        { jogDivisor = max(1, v) }
+    if let v = p["motor"] as? Bool            { motor = v }
+    return true
+}
+
+func parseArgs() {
+  var ai = 0
+  while ai < argv.count {
     func next() -> String? { ai += 1; return ai < argv.count ? argv[ai] : nil }
     switch argv[ai] {
+    case "--prefs":        _ = next()          // read above, before anything else
+    case "--scratch-engine": scratchEngine = next() == "notouch" ? "notouch" : "touch"
+    case "--no-scratch-accel": scratchAccel = false
+    case "--no-coast-release": coastRelease = false
+    case "--while-playing":
+        let v = next() ?? ""
+        if ["nudge", "scratch", "ignore"].contains(v) { whilePlaying = v }
     case "-p", "--port":   hwFilter = next() ?? hwFilter
     case "-n", "--name":   virtName = next() ?? virtName
     case "-d", "--drop":   dropSpec = next() ?? dropSpec
@@ -111,9 +178,10 @@ while ai < argv.count {
     case "--motor":        motor = true
     case "--no-motor":     motor = false
     case "--play-note":    playNote = Int(next() ?? "") ?? playNote
+    case "--play-state-note": playStateNote = Int(next() ?? "") ?? playStateNote
     case "--no-jog-gate":  jogGate = false
-    case "--motor-touch":    motorTouch = true
-    case "--no-motor-touch": motorTouch = false
+    case "--no-vinyl-hold":  vinylHold = false
+    case "--platter-gap":    platterGapMs = max(0, Double(next() ?? "") ?? platterGapMs)
     case "-w", "--wait":   waitForDeck = true
     case "--vinyl-note":   vinylNote = Int(next() ?? "") ?? vinylNote
     case "--shift-note":   shiftNote = Int(next() ?? "") ?? shiftNote
@@ -138,15 +206,19 @@ while ai < argv.count {
         back to the virtual port is forwarded to the real deck.
 
         usage: midiproxy [options]
+              --prefs <path>  preferences file, re-read whenever it changes
+                              (default: ~/Library/Application Support/
+                              SC5000M Proxy/prefs.json — edit it from the page
+                              prefs_server.py serves). Flags here win over it.
           -p, --port <text>   hardware source to read      (default: SC5000)
           -n, --name <text>   virtual port name            (default: SC5000M Proxy)
           -d, --drop <list>   messages to filter out
-                              default: note:56,cc:17,cc:49,pitch
-                              note 56 is the heartbeat; CC 17/49 and pitch bend
-                              duplicate the platter rotation that CC 54/55 already
-                              carry, and pitch bend is an absolute angle that wraps
-                              every revolution — feeding it to a relative jog
-                              control makes the host jump wildly.
+                              default: note:56,cc:55,pitch
+                              note 56 is the heartbeat; CC 55 and pitch bend
+                              duplicate the platter rotation the proxy reads from
+                              CC 17/49 and CC 54, and pitch bend is an absolute
+                              angle that wraps every revolution — feeding it to a
+                              relative jog control makes the host jump wildly.
                               "pitch" drops pitch bend; otherwise note:<n> / cc:<n>
               --no-feedback   do not forward host → device messages
 
@@ -175,15 +247,18 @@ while ai < argv.count {
 
         Motor mode and the jog gate (on by default):
           The deck reports motor rotation exactly like a hand scratching, and it
-          has no touch sensor to tell them apart, so while the motor runs its
-          rotation is discarded — otherwise the host seeks to the end of the track.
+          has no touch sensor to tell them apart. So while the motor runs, the
+          platter reaches the host only when something takes it off the motor's
+          speed: hold it to stop the track, scratch it, let go and the motor runs
+          it back up, handing the track back to the host at 33 1/3.
 
-          The STOP MOTOR button switches between the two behaviours:
-            motor mode   platter spins with playback, jog ignored
+          Vinyl (with or without SHIFT) switches between the two, lit for motor:
+            motor mode   platter spins with playback; hold it to stop the track
             manual mode  motor off, platter free, jog and scratching work
 
+              --no-vinyl-hold   motor mode ignores the platter while it spins
               --no-jog-gate     never discard rotation (host will seek on its own)
-              --vinyl-note <n>  motor-mode button, held with SHIFT  (default 19)
+              --vinyl-note <n>  the motor-mode button, lamp included (default 19)
               --shift-note <n>  SHIFT, watched to qualify it     (default 26)
 
         Pad modes (on by default):
@@ -216,12 +291,18 @@ while ai < argv.count {
 
               --jog-divisor <n> platter ticks per seek step  (default 8;
                                 higher = less sensitive, 1 = raw)
-              --motor-touch     EXPERIMENTAL: subtract the motor's learned rate
-                                and forward the residual, so a driven platter can
-                                still scratch. Off by default and best left off —
-                                a hand moving at the motor's own speed reads as no
-                                hand, and a throw wraps the 7-bit CC and plays
-                                backwards. See the note on motorTouch in source.
+              --scratch-engine touch|notouch
+                                who decides the hand has let go: the proxy,
+                                through note 40 (default), or djay, through its
+                                scratchingNoTouchMove
+              --no-scratch-accel  leave djay's acceleration curve off the platter
+              --platter-gap <ms>  at most one platter message per <ms> (default 0:
+                                every report, ~1000 a second)
+              --while-playing nudge|scratch|ignore
+                                what the platter does to a playing deck (default
+                                nudge: djay's pitch bend; a paused deck scratches)
+              --no-coast-release  keep scratching while the platter coasts on its
+                                own momentum, as it did before (see coastRelease)
           -w, --wait          wait for the deck instead of exiting when it is
                               absent, and exit if it later goes away — so a
                               supervisor (see the LaunchAgent in the README) can
@@ -236,7 +317,11 @@ while ai < argv.count {
         exit(2)
     }
     ai += 1
+  }
 }
+
+let prefsFound = loadPrefs()
+parseArgs()
 
 // ───────────────────────────── helpers ─────────────────────────────
 
@@ -438,8 +523,36 @@ func toDevice(_ m: [UInt8]) {
 }
 
 var motorRunning = false
-var ledPlaying = false          // last play-LED level seen
-var ledPlayingSince = Date()    // when it last changed
+// djay's play LED, per deck. It does not signal play state by level: it holds the LED
+// solid to mean playing and BLINKS it at 0.5s on/off to mean paused, so "lit" alone is
+// true half the time in both states. Lit and unchanged for motorDebounce is the only
+// reading that means playing. Every deck is followed, not just the one in focus, so a
+// layer flip lands on the right answer at once.
+var playLit = [Bool](repeating: false, count: 16)
+var playLitSince = [Date](repeating: .distantPast, count: 16)
+var deckPlays = [Bool](repeating: false, count: 16)
+// The play LED is only the fallback. Read live, it was not even reliable: straight after
+// one pause djay held it lit for over a second, so a paused deck read as playing and a
+// scratch turned into a nudge under the hand. A mapping that carries djay's isPlaying
+// (build_mapping.py binds it to playStateNote) says it outright, with no debounce — once
+// a deck has reported that way, its LED is no longer consulted.
+var playReported = [Bool?](repeating: nil, count: 16)
+
+enum PlatterRole { case scratch, bend, none }
+/// Which djay control the platter drives right now. Exactly one, or none: djay acts
+/// on every target that matches, so a platter on two of them does both at once.
+func platterRole() -> PlatterRole {
+    if shiftHeld { return .scratch }                 // jogSeekMove, playing or not
+    // A stopped track scratches. Pitch bend has nothing to bend on a stopped deck: with
+    // djay in its jog pitch-bend mode, moving the platter sent 2,828 pitch-bend steps and
+    // the track did not move at all. That mode is pinned off now (see pinScratchMode).
+    guard deckPlays[layer] else { return .scratch }
+    switch whilePlaying {
+    case "nudge":   return .bend
+    case "scratch": return .scratch
+    default:        return .none
+    }
+}
 var motorMode = false           // start in manual: the platter is the instrument, and
                                 // motor mode costs you scratching outright, so it has
                                 // to be asked for. Starting motor-side also made the
@@ -457,13 +570,8 @@ var lastJogAt = Date.distantPast
 var recentTicks: [Date] = []
 var coarse = 0              // CC 17 — high 7 bits of platter position
 var lastPos = -1            // last combined 14-bit position
-var ledFull = true          // buttons at full brightness rather than djay's level
-// Pads 32-39 and the platter ring are RGB: velocity is a colour index, not brightness.
-// djay sends its own level, so substitute the current bank's colour.
-var padColour = true
 let posCoarseCC = 17
 var virtualPos = 0.0        // scaled position handed to the host
-var lastSent = -1
 var scratchStartedAt = Date.distantPast
 let posCC = 49              // absolute platter position
 let scratchNote = 40        // "Platter Touch" — unused by this deck, free to reuse
@@ -476,63 +584,157 @@ func emitToHost(_ m: [UInt8]) {
 
 func setScratching(_ on: Bool) {
     guard on != scratching else { return }
+    if !on { sendPlatter(force: true) }  // steps still held back by the gap go first
     scratching = on
     if on { scratchStartedAt = Date() }
-    emitToHost([0x90, UInt8(scratchNote), on ? 127 : 0])
+    // With djay deciding the release, the note is never raised: scratchingMode would
+    // hold the track the way a hand does, which is exactly the call being left to djay.
+    // The state is still kept, because it is what filters stray ticks on the way in.
+    // A motor hold always uses the note: holding the track still is the whole point.
+    if scratchEngine == "touch" || motorRunning { emitToHost([0x90, UInt8(scratchNote), on ? 127 : 0]) }
     if verbose { print("  scratch \(on ? "start" : "end")") }
 }
+
+// The platter goes out on one of four CCs. The mapping binds the same platter four
+// ways, so trying another feel is a preference rather than a mapping reload in djay:
+//   49  scratchingMove,        touch from note 40, acceleration    (the original)
+//   80  scratchingMove,        touch from note 40, no acceleration
+//   81  scratchingNoTouchMove, djay decides release, acceleration
+//   82  scratchingNoTouchMove, djay decides release, no acceleration
+// Only one ever moves. SHIFT always takes CC 49, where jogSeekMove lives.
+func platterOut() -> (cc: Int, absolute: Bool) {
+    if shiftHeld { return (posCC, true) }
+    // Under a motor hold the track follows the platter one to one: acceleration would
+    // run it faster than the platter turns, and the hand-off at 33⅓ would jump.
+    if motorRunning { return (80, true) }
+    switch (scratchEngine == "notouch", scratchAccel) {
+    case (false, true):  return (49, true)
+    case (false, false): return (80, true)
+    case (true, true):   return (81, false)
+    case (true, false):  return (82, false)
+    }
+}
+var sentSteps = 0                   // whole steps of virtualPos already handed to djay
+// djay reads an absolute CC as the difference from the last value it saw on that CC,
+// per channel. Each one therefore keeps its own count, advanced only by what is sent
+// on it, so moving between CCs or decks never lands djay on a stale value and seeks.
+var absSent = [Int: Int]()          // channel * 128 + cc -> last value sent
+
+var platterSentAt = 0.0
+/// Hands djay whatever whole steps virtualPos has gained since the last message — at
+/// most one message per platterGapMs. Steps held back by the gap go out with the next
+/// report, before any release, or from the idle timer if the platter stops reporting.
+func sendPlatter(force: Bool = false) {
+    let now = CFAbsoluteTimeGetCurrent()
+    if !force, platterGapMs > 0, now - platterSentAt < platterGapMs / 1000 { return }
+    // A 7-bit step can only say ±63; anything bigger waits for the next report.
+    let n = max(-63, min(63, Int(virtualPos.rounded()) - sentSteps))
+    guard n != 0 else { return }
+    sentSteps += n
+    let (cc, absolute) = platterOut()
+    let v: Int
+    if absolute {
+        let key = layer * 128 + cc
+        v = ((absSent[key, default: 0] + n) % 128 + 128) % 128
+        absSent[key] = v
+    } else {
+        v = n > 0 ? n : 128 + n     // djay's "rotary": 1-63 forward, 127-65 back
+    }
+    platterSentAt = now
+    passed += 1
+    if verbose { print("  pass  ch\(layer + 1) CC \(cc) = \(v)  (\(n > 0 ? "+" : "")\(n), scaled 1/\(scratchScale))") }
+    emitToHost([0xB0, UInt8(cc), UInt8(v)])
+}
+// ── A platter turning on its own ──
+// With the motor off this platter spins free on its bearing. A push, a brush or a
+// throw leaves it coasting for seconds, and since the deck reports no touch, all of it
+// used to read as a hand: one brush on a playing track held it for 6.6s, dragged
+// backwards at whatever speed the platter happened to coast, and a throw ran the track
+// on for 3.6s and wound it down to a stop.
+//
+// A coasting platter is easy to recognise, though, because friction slows it along
+// one curve. Measured off this deck (capture 2026-10-31): it loses rate/1.11s + 263
+// ticks/s² every second, the same curve from a 150 rpm throw down to a crawl. A hand
+// does not follow that for long. So once the platter has tracked the curve for
+// coastHold, the hand is off: the scratch is let go, djay plays the track on, and the
+// coast is ignored until something drives the platter again — faster than a coast
+// can go, or braking harder than friction can.
+//
+// Replayed against the capture, every coast was caught 0.18-0.26s after the hand left
+// and nothing in a run of real scratching was mistaken for one. Shorter holds or
+// looser tolerances started catching scratch strokes, so these are the fastest
+// settings that held at zero.
+let coastTau = 1.11, coastDrag = 263.0      // measured: decel = rate/tau + drag
+let coastTolRel = 0.06, coastTolAbs = 60.0  // how closely the platter must follow it
+let coastHold = 0.10                        // ... and for how long
+let coastMinRate = 400.0                    // ticks/s; slower than this, too coarse to judge
+let coastQuiet = 0.5                        // stillness that ends a coast, settling included
+let coastRateWin = 0.05, coastRateGap = 0.10
+var freeCoast = false
+var coastStartedAt = 0.0
+var coastLikeSince: Double? = nil
+var coastPos = 0                            // unwrapped platter position, always tracked
+var coastLastRaw = -1
+var coastHist: [(t: Double, pos: Int)] = []
+
+func wrap14(_ d: Int) -> Int { d > 8192 ? d - 16384 : d < -8192 ? d + 16384 : d }
+
+/// Position as of `t`: the last report at or before it.
+func coastPosAt(_ t: Double) -> Int {
+    for e in coastHist.reversed() where e.t <= t { return e.pos }
+    return coastHist.first?.pos ?? 0
+}
+/// Ticks per second over the window ending at `t`. Always over a window: one report
+/// carries 1-8 whole ticks, far too coarse for a per-message rate.
+func coastRate(_ t: Double) -> Double {
+    Double(coastPosAt(t) - coastPosAt(t - coastRateWin - 1e-9)) / coastRateWin
+}
+/// Where friction alone takes a platter turning at `r0` after `dt`.
+func coastPredict(_ r0: Double, _ dt: Double) -> Double {
+    let v = (abs(r0) + coastDrag * coastTau) * exp(-dt / coastTau) - coastDrag * coastTau
+    return (r0 < 0 ? -1 : 1) * max(v, 0)
+}
+func coastTolerance(_ r0: Double) -> Double { coastTolRel * abs(r0) + coastTolAbs }
+
+/// True once the platter has followed the friction curve for coastHold.
+func coastsFreely(at t: Double) -> Bool {
+    let now = coastRate(t), before = coastRate(t - coastRateGap)
+    let like = abs(before) >= coastMinRate && now * before > 0 && abs(now) < abs(before)
+        && abs(now - coastPredict(before, coastRateGap)) <= coastTolerance(before)
+    guard like else { coastLikeSince = nil; return false }
+    if coastLikeSince == nil { coastLikeSince = t }
+    return t - coastLikeSince! >= coastHold
+}
+/// True when something other than friction is moving a coasting platter.
+func handBack(at t: Double) -> Bool {
+    let now = coastRate(t), before = coastRate(t - coastRateGap)
+    guard abs(now) >= 150 || abs(before) >= 150, t - coastStartedAt > 0.05 else { return false }
+    let off = abs(now - coastPredict(before, coastRateGap)) > 2 * coastTolerance(before)
+    return off || (now * before < 0 && abs(now) > 150)
+}
+
 var motorStoppedAt = Date.distantPast
 let coastWindow = 4.0       // platter keeps turning after a stop command
 
-// Scratching on a driven platter. The deck has no touch sensor, but the motor has
-// exactly one speed — so while it turns, rotation AT that speed is the motor and
-// anything else is a hand. Learn the rate while nothing is touching, then subtract
-// it: what is left is the hand's own movement, which is what the host should see.
-// Steady motor leaves a residual of ~0 and nothing is forwarded, so the track does
-// not run away; a hand leaves a large one and scratches.
-var motorTouch = false      // EXPERIMENTAL, off by default: --motor-touch to try it.
-                            // Subtracting the motor's rate does work in the steady
-                            // case, but the edges defeat it. A hand sweeping through
-                            // the motor's own speed is indistinguishable from no hand;
-                            // a throw makes per-message residuals big enough that the
-                            // host misreads the 7-bit wrap and plays the throw
-                            // backwards; and the coast window keeps this path live for
-                            // seconds after the motor stops, where a stale rate turns
-                            // a freed platter into a runaway. The deck gives no touch
-                            // signal, so all of it is inference, and the failure modes
-                            // sit exactly where the inference is weakest. Motor and
-                            // scratching stay separate modes on SHIFT+Vinyl instead.
-var baseRate = 0.0          // ticks/sec the motor alone produces, learned live
-var baseSeeded = false
-var lastPosAt = Date.distantPast
-var devRun = 0              // consecutive samples away from the learned rate
-var rateSamples: [Double] = []      // gathered to seed baseRate from a settled platter
 var motorSettleUntil = Date.distantPast
 // djay reports its own jog mode by lighting note 19: LIT means pitch bend, dark means
 // scratch. Read it back so the platter only ever drives the control that is actually
 // live — both were bound at once (scratchingMove on CC 49, pitchBendMove on CC 54) and
 // a host that acts on both scratches and nudges tempo off one hand movement.
 var bendMode = [Bool](repeating: false, count: 16)
-var belowSince = Date.distantPast    // when the rate first settled back to the motor's
-var posHist: [(Date, Int)] = []     // recent unwrapped positions, for a smoothed rate
-var unwrapped = 0                   // running tick count, free of the 14-bit wrap
-// Rate has to be measured over a window, never per message. Each report carries 1-4
-// whole ticks over ~1-4ms, so a per-message d/dt swings by ±1000 ticks/s on the
-// integer alone -- far past any sane threshold, which makes it chatter with nothing
-// touching the platter. Over 60ms the same quantum is a rounding error.
-let rateWindow = 0.06
-// Thresholds as a fraction of the motor's own rate rather than absolute: the deck
-// turns out to run ~2000 ticks/s, not the ~750 the spec estimated from message
-// counts, so fixed figures sized against that guess were wildly too tight.
-let touchEnterFrac = 0.35   // this far off the motor's rate means a hand is on
-let touchExitFrac  = 0.18   // ... and the lower bar to stay on, so it cannot chatter
-let touchEnterRun = 3
-// Leaving has to be judged on time, not samples. A hand sweeps through the motor's
-// own speed on every stroke, and for that instant a held platter is indistinguishable
-// from a free one -- 3 samples is ~7ms at this report rate, so every stroke dropped
-// the scratch and picked it straight back up. A released platter STAYS at the motor's
-// rate, so requiring the match to persist tells the two apart.
-let touchExitHold = 0.20
+
+// ── Hold to stop, on a driven platter ──
+// Measured off this deck (capture 2026-10-31, motor mode, three holds): the motor turns
+// the platter at 2010 ticks/s — 32.7 rpm, 33⅓ to the deck's own accuracy — steady to
+// ±50 ticks/s at p99 over a 50ms window. A hand stops it within 0.2s, and on release the
+// motor has it back at speed in 0.15-0.2s. Replayed against that capture, these caught
+// each hold 60-90ms after the hand landed, let go ~0.2s after release, and never fired
+// on the motor alone. The rate is the coast tracker's, over the same 50ms window.
+let motorRate = 2010.0
+let holdEnterFrac = 0.15, holdEnterTime = 0.015    // this far off speed, this long: a hand
+let holdExitFrac = 0.08, holdExitTime = 0.08       // back within this, this long: let go
+var holdOffSince: Double? = nil
+var holdAtSpeedSince: Double? = nil
 
 /// Rotation reports: the documented jog pair, the two undocumented twins, and pitch bend.
 func isJogReport(_ m: [UInt8]) -> Bool {
@@ -544,19 +746,15 @@ func isJogReport(_ m: [UInt8]) -> Bool {
 
 func setMotor(_ on: Bool) {
     guard motor, on != motorRunning else { return }
+    if !on { setScratching(false) }     // while motorRunning still says who raised it
     motorRunning = on
     if !on { motorStoppedAt = Date() }
-    // The rate is about to change, so the learned one is worthless. Spin-up and
-    // spin-down both sweep through every rate between zero and cruising: seeding
-    // anywhere in there gives a baseline the platter never returns to, and the
-    // deviation then never falls back under the exit bar — the hand looks like it
-    // is on the platter for ever, which is exactly how the motor's own rotation
-    // leaks out as endless drift.
-    baseSeeded = false
-    rateSamples.removeAll()
-    posHist.removeAll()
-    devRun = 0
-    motorSettleUntil = Date().addingTimeInterval(1.5)
+    // Spin-up runs through every speed between rest and 33⅓, which is exactly what a
+    // hand looks like. Measured, the platter is at speed 0.15-0.25s after the start
+    // command, so the hold waits that out rather than grabbing the track on every play.
+    motorSettleUntil = Date().addingTimeInterval(on ? 0.4 : 0)
+    holdOffSince = nil
+    holdAtSpeedSince = nil
     toDevice([0xB0, UInt8(on ? motorStart : motorStop), 0])
     if verbose { print("  motor \(on ? "start" : "stop")") }
 }
@@ -599,14 +797,79 @@ func showDeckLEDs() {
     showPadMode()
 }
 
+/// The Vinyl lamp is the motor's: lit while motor mode is on.
+func showVinyl() { toDevice([0x90, UInt8(vinylNote), motor && motorMode ? 127 : 0]) }
+
+var pinnedAt = [Date](repeating: .distantPast, count: 16)
+/// Turns djay's jog pitch-bend mode back off for a deck, by pressing its toggle on the
+/// proxy's side. In that mode djay ignores scratchingMove, so a deck left in it — from
+/// djay's own settings, or a Vinyl press before the button became the motor's — cannot
+/// scratch at all. At most once a second per deck, so a stale echo cannot loop.
+func pinScratchMode(_ ch: Int) {
+    guard Date().timeIntervalSince(pinnedAt[ch]) > 1.0 else { return }
+    pinnedAt[ch] = Date()
+    for v: UInt8 in [127, 0] {
+        withPacketList([0x90 | UInt8(ch & 0x0F), UInt8(vinylNote), v]) { pl in MIDIReceived(virtSrc, pl) }
+    }
+    print("  deck \(ch + 1): djay was in jog pitch-bend mode — switched it back to scratch")
+}
+
 /// Lights LAYER off deck 1, and tints the platter ring to the current deck's colour.
 func showLayer() {
+    showVinyl()
     guard layerLED else { return }
     toDevice([0x90, UInt8(layerNote), layer == 0 ? 0 : 127])
     if !layerColours.isEmpty {
         let c = layerColours[layer % layerColours.count]
         toDevice([0x90, UInt8(platterRingNote), UInt8(c & 0x7F)])
     }
+}
+
+func switchLayer(to next: Int) {
+    // release anything still held, on the layer it was pressed on — a scratch included
+    setScratching(false)
+    for n in heldNotes {
+        withPacketList(onLayer([0x90, n, 0])) { pl in MIDIReceived(virtSrc, pl) }
+    }
+    heldNotes.removeAll()
+    padHeldMode = [Int](repeating: -1, count: 8)   // those releases are now sent
+    layer = next
+    flips += 1
+    showLayer()
+    showDeckLEDs()          // the new deck's LEDs, as the host last described them
+    print("  layer \(Character(UnicodeScalar(65 + layer)!)) — deck \(layer + 1) (channel \(layer + 1))")
+}
+
+func prefsSummary() -> String {
+    "decks \(layerCount), \(scratchEngine == "touch" ? "proxy touch" : "djay no-touch")"
+    + "\(scratchAccel ? " + acceleration" : ", no acceleration")"
+    + "\(coastRelease ? ", lets go on a coast" : ", scratches through a coast")"
+    + "\(platterGapMs > 0 ? ", platter every \(Int(platterGapMs))ms" : "")"
+    + ", playing deck \(whilePlaying == "nudge" ? "nudges" : whilePlaying == "scratch" ? "scratches" : "ignores the platter"), scale 1/\(scratchScale), "
+    + "release \(Int((scratchIdle * 1000).rounded()))ms, engage \(scratchEnter), "
+    + "bend 1/\(jogDivisor), motor \(motor ? "available" : "off")"
+}
+
+func prefsStamp() -> Date? {
+    (try? FileManager.default.attributesOfItem(atPath: prefsPath))?[.modificationDate] as? Date
+}
+var lastPrefsStamp = prefsStamp()
+
+/// Picks up an edited prefs file while running. Everything it carries is safe to change
+/// live, with three things to put right first: a scratch in progress is let go (the
+/// engine that raised note 40 may be about to change), a deck that no longer exists is
+/// left for deck 1, and a motor that is no longer allowed is stopped.
+func reloadPrefs() {
+    setScratching(false)
+    guard loadPrefs() else { return }
+    parseArgs()                         // the command line still wins
+    if layer >= layerCount { switchLayer(to: 0) }
+    if !motor {
+        if motorRunning { motorRunning = false; motorStoppedAt = Date(); toDevice([0xB0, UInt8(motorStop), 0]) }
+        motorMode = false
+    }
+    showVinyl()
+    print("prefs: \(prefsSummary())")
 }
 
 // device → filter → virtual source
@@ -623,24 +886,26 @@ inSplitter.onMessage = { m in
         shiftHeld = (m[0] & 0xF0) == 0x90 && m[2] > 0
     }
 
-    // SHIFT+Vinyl toggles between a spinning platter and a free one. PLAIN Vinyl is
-    // djay's, where it switches the platter between scratching and pitch-bend
-    // nudging — so one button can carry both without its meaning depending on
-    // whether the proxy happens to be driving the motor. Only the press we actually
-    // took is swallowed, note-off included, so letting go of SHIFT first cannot
-    // leave djay holding half a press.
-    if motor, m.count >= 3, Int(m[1]) == vinylNote {
-        let isPress = (m[0] & 0xF0) == 0x90 && m[2] > 0
-        if isPress, shiftHeld {
-            vinylConsumed = true
-            motorMode.toggle()
-            setMotor(motorMode && playing)
-            print(motorMode ? "  motor mode — platter spins with playback, jog ignored"
-                            : "  manual mode — motor off, platter free to scratch")
-            return
+    // Vinyl is the motor button. Every press, SHIFT or not, switches the platter between
+    // a turntable (spinning with playback, hold it to stop the track) and a free one,
+    // and its lamp says which. It never reaches djay: djay's own use of it, jog pitch-
+    // bend mode, is not wanted any more. The proxy chooses scratch or nudge from play
+    // state, and in that mode djay ignores scratchingMove, so the platter goes dead.
+    if m.count >= 3, Int(m[1]) == vinylNote, (m[0] & 0xF0) == 0x90 || (m[0] & 0xF0) == 0x80 {
+        if (m[0] & 0xF0) == 0x90 && m[2] > 0 {
+            if motor {
+                motorMode.toggle()
+                playing = deckPlays[layer]
+                setMotor(motorMode && playing)
+                print(motorMode ? (vinylHold ? "  motor mode — platter spins with playback; hold it to stop the track"
+                                             : "  motor mode — platter spins with playback, jog ignored")
+                                : "  manual mode — motor off, platter free to scratch")
+            } else {
+                print("  Vinyl — motor mode is switched off on the prefs page")
+            }
+            showVinyl()
         }
-        if isPress { vinylConsumed = false }
-        if !isPress, vinylConsumed { vinylConsumed = false; return }
+        return
     }
 
     // With no touch sensor, rotation while the motor drives is never scratching --
@@ -666,8 +931,9 @@ inSplitter.onMessage = { m in
         // touch call that is briefly wrong leaves the track permanently off speed,
         // where the same mistake on the scratch path is just a nudge in position that
         // the next moment corrects. It is not worth that risk on a driven platter:
-        // pitch bend stays on the PITCH BEND -/+ buttons while the motor runs.
-        if !(motorTouch && isPos) {
+        // pitch bend stays on the PITCH BEND -/+ buttons while the motor runs. Spin-up
+        // and spin-down are the motor's too, so only a platter at speed gets through.
+        if !(vinylHold && motorRunning && Date() >= motorSettleUntil && isPos) {
             jogSuppressed += 1
             return
         }
@@ -677,19 +943,7 @@ inSplitter.onMessage = { m in
     if layerEnabled, m.count >= 3, Int(m[1]) == layerNote,
        (m[0] & 0xF0) == 0x90 || (m[0] & 0xF0) == 0x80 {
         let isPress = (m[0] & 0xF0) == 0x90 && m[2] > 0
-        if isPress {
-            // release anything still held, on the layer it was pressed on
-            for n in heldNotes {
-                withPacketList(onLayer([0x90, n, 0])) { pl in MIDIReceived(virtSrc, pl) }
-            }
-            heldNotes.removeAll()
-            padHeldMode = [Int](repeating: -1, count: 8)   // those releases are now sent
-            layer = (layer + 1) % layerCount
-            flips += 1
-            showLayer()
-            showDeckLEDs()          // the new deck's LEDs, as the host last described them
-            print("  layer \(Character(UnicodeScalar(65 + layer)!)) — deck \(layer + 1) (channel \(layer + 1))")
-        }
+        if isPress { switchLayer(to: (layer + 1) % layerCount) }
         return
     }
 
@@ -743,82 +997,77 @@ inSplitter.onMessage = { m in
     // acting on those makes the host lurch back into scratching — so require
     // sustained movement before believing a hand is on the platter, and forward
     // position only while we do.
-    if m.count >= 3, (m[0] & 0xF0) == 0xB0, Int(m[1]) == posCC, !bendMode[layer] {
+    if m.count >= 3, (m[0] & 0xF0) == 0xB0, Int(m[1]) == posCC {
         let now = Date()
         lastJogAt = now
         // CC 49 wraps several times per revolution; unwrap it, scale it down, and
         // hand the host a position that moves at a sane rate.
         let raw = (coarse << 7) | Int(m[2])
 
-        if driven, motorTouch {
-            // Driven platter: tell hand from motor by rate, not by presence.
-            var d = 0, dt = 0.0
-            if lastPos >= 0 {
-                d = raw - lastPos
-                if d >  8192 { d -= 16384 }
-                if d < -8192 { d += 16384 }
-                dt = now.timeIntervalSince(lastPosAt)
-            }
-            lastPos = raw
-            lastPosAt = now
-            guard dt > 0.0005, dt < 0.25 else { return }   // no basis for a rate yet
+        let t = now.timeIntervalSinceReferenceDate
+        // After a pause — pitch-bend mode, a held platter — the last position is stale,
+        // and differencing against it would read as one enormous jump.
+        if let last = coastHist.last, t - last.t > 0.3 { coastLastRaw = -1 }
+        if coastLastRaw >= 0 { coastPos += wrap14(raw - coastLastRaw) }
+        coastLastRaw = raw
+        coastHist.append((t, coastPos))
+        while let first = coastHist.first, t - first.t > 0.3 { coastHist.removeFirst() }
 
-            unwrapped += d
-            posHist.append((now, unwrapped))
-            posHist.removeAll { now.timeIntervalSince($0.0) > rateWindow }
-            if now < motorSettleUntil { return }       // still spinning up or down
-            guard let oldest = posHist.first else { return }
-            let span = now.timeIntervalSince(oldest.0)
-            guard span >= rateWindow * 0.5 else { return }  // not enough history yet
-            let rate = Double(unwrapped - oldest.1) / span
-
-            if !baseSeeded {
-                // Seed from the middle of a batch, and only if the batch is tight.
-                // A hand resting on the platter during seeding spreads the samples,
-                // and a spread batch is thrown away rather than trusted.
-                rateSamples.append(rate)
-                guard rateSamples.count >= 24 else { return }
-                let sorted = rateSamples.sorted()
-                let med = sorted[sorted.count / 2]
-                let spread = sorted[(sorted.count * 3) / 4] - sorted[sorted.count / 4]
-                if abs(med) > 1, spread < abs(med) * 0.15 { baseRate = med; baseSeeded = true }
-                rateSamples.removeAll()
-                if verbose, baseSeeded { print("  motor rate learned: \(Int(baseRate)) ticks/s") }
-                return                                     // never scratch before it is known
-            }
-
+        if motorRunning, vinylHold {
+            // The motor turns the platter; a hand is whatever takes it off that speed.
+            // Held, the track follows the platter exactly — stopped under a still hand,
+            // scratched by a moving one, and run back up with the motor on release, so
+            // the hand-off at 33⅓ lands djay at the speed it was already playing.
+            let off = abs(coastRate(t) - motorRate)
             if !scratching {
-                let dev = abs(rate - baseRate)
-                // Only ever learn from rotation that looks like the motor, or the
-                // baseline chases the hand and the deviation vanishes.
-                if dev < abs(baseRate) * touchExitFrac { baseRate = baseRate * 0.95 + rate * 0.05 }
-                devRun = dev > abs(baseRate) * touchEnterFrac ? devRun + 1 : 0
-                guard devRun >= touchEnterRun else { return }  // motor alone: host sees nothing
-                devRun = 0
-                belowSince = Date.distantPast
+                // The gate holds reports back through spin-up, so the history starts
+                // empty when it ends; a rate over less than a full window reads low and
+                // looked like a hand — a 0.11s grab on every play, before this.
+                guard let first = coastHist.first, t - first.t >= coastRateWin else { return }
+                holdOffSince = off > motorRate * holdEnterFrac ? (holdOffSince ?? t) : nil
+                guard let since = holdOffSince, t - since >= holdEnterTime else { return }
+                holdOffSince = nil
+                holdAtSpeedSince = nil
+                lastPos = -1
+                if verbose { print("  hold — hand on a spinning platter") }
                 setScratching(true)
-                return                                    // start clean on the next sample
-            }
-            // Released: the platter settles back to the motor's rate AND stays there.
-            if abs(rate - baseRate) < abs(baseRate) * touchExitFrac {
-                if belowSince == Date.distantPast { belowSince = now }
-                if now.timeIntervalSince(belowSince) > touchExitHold {
-                    belowSince = Date.distantPast
+            } else if off < motorRate * holdExitFrac {
+                holdAtSpeedSince = holdAtSpeedSince ?? t
+                if t - holdAtSpeedSince! >= holdExitTime {
+                    holdAtSpeedSince = nil
+                    if verbose { print("  hold — let go, platter back at speed") }
                     setScratching(false)
                     return
                 }
             } else {
-                belowSince = Date.distantPast
+                holdAtSpeedSince = nil
             }
-            // Deadband. Staying in scratch mode through the settle is right -- it stops
-            // the chatter -- but FEEDING movement through it is not: a platter coming
-            // back down from a throw dips under the motor's rate before the servo
-            // catches it, and that shows up as the track playing backwards for a
-            // moment. Inside the release band the platter is doing the motor's work,
-            // not the hand's, so hand movement is zero by definition.
-            guard abs(rate - baseRate) > abs(baseRate) * touchExitFrac else { return }
-            virtualPos += (Double(d) - baseRate * dt) / scratchScale
+            if lastPos >= 0 { virtualPos += Double(wrap14(raw - lastPos)) / scratchScale }
+            lastPos = raw
         } else {
+
+            // Coasting is told apart in every role. A nudge needs it as much as a
+            // scratch does: one brush on a playing track would otherwise bend its
+            // tempo for as long as the platter took to stop.
+            let role = platterRole()
+            if freeCoast {
+                // The platter is turning on its own momentum and djay has the track
+                // back. Keep out of its way until a hand drives the platter again.
+                guard handBack(at: t) else { return }
+                freeCoast = false
+                if verbose { print("  coast — hand back on") }
+                if role == .scratch { lastPos = -1; setScratching(true) }
+            } else if coastRelease, role != .scratch, coastsFreely(at: t) {
+                freeCoast = true
+                coastStartedAt = t
+                coastLikeSince = nil
+                if verbose { print("  coast — platter turning on its own") }
+                return
+            }
+            guard role == .scratch else {
+                setScratching(false)
+                return                       // CC 54 carries the platter, or nothing does
+            }
             if !scratching {
                 recentTicks.append(now)
                 recentTicks.removeAll { now.timeIntervalSince($0) > enterWindow }
@@ -828,7 +1077,16 @@ inSplitter.onMessage = { m in
                 }
                 recentTicks.removeAll()
                 lastPos = -1
+                coastLikeSince = nil
                 setScratching(true)
+            }
+            if coastRelease, coastsFreely(at: t) {
+                freeCoast = true
+                coastStartedAt = t
+                coastLikeSince = nil
+                if verbose { print("  coast — hand off, platter turning on its own") }
+                setScratching(false)
+                return
             }
             if lastPos >= 0 {
                 var d = raw - lastPos
@@ -837,21 +1095,17 @@ inSplitter.onMessage = { m in
                 virtualPos += Double(d) / scratchScale
             }
             lastPos = raw
-            lastPosAt = now
         }
-        let outVal = ((Int(virtualPos.rounded()) % 128) + 128) % 128
-        guard outVal != lastSent else { return }
-        lastSent = outVal
-        passed += 1
-        if verbose { print("  pass  ch\(layer + 1) CC \(posCC) = \(outVal)  (scaled 1/\(scratchScale))") }
-        emitToHost([m[0], m[1], UInt8(outVal)])
+        sendPlatter()
         return
     }
 
     // Scale the platter down: accumulate ticks, emit one step per `jogDivisor`.
-    // Only while djay says the deck is in pitch-bend mode — otherwise the platter
-    // drives scratchingMove and pitchBendMove off the same movement at once.
-    if m.count >= 3, (m[0] & 0xF0) == 0xB0, Int(m[1]) == 54, bendMode[layer] {
+    // Only in the bend role — Vinyl dark, or a playing deck — otherwise the platter
+    // drives scratchingMove and pitchBendMove off the same movement at once. CC 54
+    // carries the report's tick count (1-8 forward, 127-120 back), so this is ticks.
+    if m.count >= 3, (m[0] & 0xF0) == 0xB0, Int(m[1]) == 54, platterRole() == .bend {
+        guard !freeCoast else { dropped += 1; return }
         let v = Int(m[2])
         jogAccum += v >= 64 ? v - 128 : v
         while abs(jogAccum) >= jogDivisor {
@@ -863,6 +1117,16 @@ inSplitter.onMessage = { m in
             if verbose { print("  pass  \(describe(routed))  (scaled 1/\(jogDivisor))") }
             withPacketList(routed) { pl in MIDIReceived(virtSrc, pl) }
         }
+        return
+    }
+
+    // Whichever half of the platter is not live goes nowhere. Gating the two handlers
+    // above on bendMode was not enough on its own: the inactive half fell through to
+    // the pass-through below, so in scratch mode raw CC 54 reached pitchBendMove on
+    // every tick — the platter nudged tempo while it scratched, and a brush too light
+    // to start a scratch still bent a playing track.
+    if m.count >= 3, (m[0] & 0xF0) == 0xB0, jogCCs.contains(Int(m[1])) {
+        dropped += 1
         return
     }
 
@@ -888,14 +1152,20 @@ if feedback, hwDst != nil {
         returned += 1
         if verbose { print("  led   \(describe(m))") }
 
-        // Play-button feedback for the layer we are on drives the platter motor.
-        if motor, m.count >= 3, Int(m[1]) == playNote,
+        // djay's isPlaying: consumed here, never shown — the deck has no such lamp.
+        if m.count >= 3, Int(m[1]) == playStateNote, (0x80...0x9F).contains(m[0]) {
+            let ch = Int(m[0] & 0x0F)
+            if playReported.allSatisfy({ $0 == nil }) { print("play : from djay's isPlaying (note \(playStateNote))") }
+            playReported[ch] = (m[0] & 0xF0) == 0x90 && m[2] > 0
+            return
+        }
+
+        // Play-button feedback: the fallback for a mapping without isPlaying.
+        if m.count >= 3, Int(m[1]) == playNote,
            (m[0] & 0xF0) == 0x90 || (m[0] & 0xF0) == 0x80 {
             let ch = Int(m[0] & 0x0F)
-            if ch == layer {
-                let lvl = (m[0] & 0xF0) == 0x90 && m[2] > 0
-                if lvl != ledPlaying { ledPlaying = lvl; ledPlayingSince = Date() }
-            }
+            let lvl = (m[0] & 0xF0) == 0x90 && m[2] > 0
+            if lvl != playLit[ch] { playLit[ch] = lvl; playLitSince[ch] = Date() }
         }
 
         // Note feedback is per deck. Remember it against the deck the host named and
@@ -903,12 +1173,13 @@ if feedback, hwDst != nil {
         // not fight over the single set of LEDs the deck actually has.
         if m.count >= 3, (0x80...0x9F).contains(m[0]) {
             let ch = Int(m[0] & 0x0F), n = Int(m[1])
-            var vel: UInt8 = (m[0] & 0xF0) == 0x90 ? m[2] : 0
+            let vel: UInt8 = (m[0] & 0xF0) == 0x90 ? m[2] : 0
             if n == vinylNote {
+                // djay's jog pitch-bend mode. Pinned off, and never shown: the lamp
+                // belongs to motor mode now.
                 bendMode[ch] = vel > 0
-                // Invert the lamp: djay lights it for pitch bend, but the panel reads
-                // better with the light meaning "the platter scratches".
-                vel = vel > 0 ? 0 : 127
+                if vel > 0 { pinScratchMode(ch) }
+                return
             }
             ledShadow[ch][n] = vel
             ledSeen.insert(n)
@@ -930,42 +1201,50 @@ if feedback, hwDst != nil {
 
 let idleTimer = DispatchSource.makeTimerSource(queue: q)
 idleTimer.schedule(deadline: .now() + .milliseconds(50), repeating: .milliseconds(50))
+var prefsPoll = 0
 idleTimer.setEventHandler {
     if deckWentAway, findSource() == nil {
         print("deck disconnected — exiting so a fresh copy can wait for it")
         exit(0)
     }
-    // Play state. djay does not signal it by level: it holds the play LED solid to
-    // mean playing and BLINKS it at 0.5s on/off to mean paused, so "lit" alone is
-    // true half the time in both states. Steady-and-lit is the only reading that
-    // means playing, and it has to be derived every tick rather than latched --
-    // waiting for the level to hold still before adopting it never fires at all
-    // while the LED is blinking, so the last value froze in place and the motor
-    // spun on through pause. A blink now simply fails "steady" and reads as paused.
-    if motor {
-        let steady = Date().timeIntervalSince(ledPlayingSince) > motorDebounce
-        let nowPlaying = ledPlaying && steady
-        if nowPlaying != playing {
-            playing = nowPlaying
-            if verbose { print("  play state -> \(playing ? "playing" : "paused")") }
-            setMotor(motorMode && playing)
-        }
+    // Twice a second is quick enough to feel live from a slider and cheap enough to
+    // ignore: one stat call. The idle timer is on q, so this never races a MIDI handler.
+    prefsPoll += 1
+    if prefsPoll % 10 == 0, prefsStamp() != lastPrefsStamp {
+        lastPrefsStamp = prefsStamp()
+        reloadPrefs()
+    }
+    // Play state, derived every tick rather than latched: waiting for the level to
+    // hold still before adopting it never fires at all while the LED is blinking, so
+    // the last value froze in place and the motor spun on through pause. A blink
+    // simply fails "steady" and reads as paused.
+    for ch in 0..<layerCount {
+        let nowPlaying = playReported[ch]
+            ?? (playLit[ch] && Date().timeIntervalSince(playLitSince[ch]) > motorDebounce)
+        guard nowPlaying != deckPlays[ch] else { continue }
+        deckPlays[ch] = nowPlaying
+        print("  deck \(ch + 1) \(nowPlaying ? "playing" : "paused")")
+        // A scratch held as its deck starts playing belongs to the other role now.
+        if ch == layer, platterRole() != .scratch { setScratching(false) }
+    }
+    if motor, deckPlays[layer] != playing {
+        playing = deckPlays[layer]
+        if verbose { print("  play state -> \(playing ? "playing" : "paused")") }
+        setMotor(motorMode && playing)
+    }
+
+    if platterGapMs > 0 { sendPlatter() }   // steps a stopped platter left behind
+
+    if freeCoast, Date().timeIntervalSince(lastJogAt) > coastQuiet {
+        freeCoast = false
+        if verbose { print("  coast — platter at rest") }
     }
 
     guard scratching else { return }
-    // On a driven platter the motor keeps rotation reports coming, so the stillness
-    // test below never fires. A scratch that outlasts this is not a long scratch, it
-    // is a baseline that no longer matches the platter — drop it and learn again
-    // rather than leaking motor rotation to the host indefinitely.
-    if motor, motorTouch, motorRunning,
-       Date().timeIntervalSince(scratchStartedAt) > 12.0 {
-        if verbose { print("  scratch released — re-learning the motor rate") }
-        setScratching(false)
-        baseSeeded = false
-        rateSamples.removeAll()
-        devRun = 0
-        return
-    }
+    // Under a motor hold, stillness IS the hold — the motor would be turning the platter
+    // otherwise — so neither the stillness release nor the cap applies. That hold ends
+    // when the platter is back at the motor's speed.
+    if motorRunning, vinylHold { return }
     if Date().timeIntervalSince(lastJogAt) > scratchIdle { setScratching(false); return }
     if Date().timeIntervalSince(scratchStartedAt) > scratchMax {
         if verbose { print("  scratch released — \(scratchMax)s cap") }
@@ -983,6 +1262,7 @@ sig.setEventHandler {
         toDevice([0x90, UInt8(platterRingNote), 0])
     }
     if padModeEnabled { for n in padModeNotes { toDevice([0x90, UInt8(n), 0]) } }
+    toDevice([0x90, UInt8(vinylNote), 0])
     if motor && motorRunning { toDevice([0xB0, UInt8(motorStop), 0]) }
     MIDIEndpointDispose(virtSrc)
     if feedback { MIDIEndpointDispose(virtDst) }
@@ -1006,11 +1286,13 @@ if layerEnabled {
 }
 print("led  : \(ledFull ? "buttons at full brightness" : "host level")\(padColour ? ", pads \(padModeColour.map(String.init).joined(separator: "/")) idle, \(padLitColour.map(String.init).joined(separator: "/")) lit, cues \(padCueColours.map(String.init).joined(separator: "/"))" : "")")
 print("jog  : scratch on \(scratchEnter)+ ticks in \(Int(enterWindow * 1000))ms, release after \(Int(scratchIdle * 1000))ms idle, scale 1/\(scratchScale)")
+print("prefs: \(prefsSummary())")
+print("       \(prefsFound ? "from" : "defaults — no file yet at") \(prefsPath), re-read on change")
 print("pads : \(padModeEnabled ? "HOT CUE/ROLL/SLICER/LOOP switch banks — notes \(padModeBase.map(String.init).joined(separator: "/")) + 0-7" : "always 32-39")")
 let gateNote: String
 if !jogGate { gateNote = "ungated" }
-else if motorTouch { gateNote = "hand told from motor by rate — scratch works while it spins; bend stays on the buttons" }
-else { gateNote = "motor rotation discarded while spinning; SHIFT+Vinyl (note \(shiftNote)+\(vinylNote)) frees the platter" }
+else if vinylHold { gateNote = "motor mode holds the track while a hand stops the platter, lets go at speed; bend stays on the buttons" }
+else { gateNote = "motor rotation discarded while spinning; Vinyl (note \(vinylNote)) frees the platter" }
 print("gate : \(gateNote)")
 print("motor: \(motor ? "platter follows play state after \(motorDebounce)s debounce (CC \(motorStart) start / CC \(motorStop) stop)" : "disabled")")
 print("\nrunning — Ctrl-C to stop\n")
